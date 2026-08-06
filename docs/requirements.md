@@ -327,7 +327,7 @@
 
 | 層 | 採用技術 |
 |---|---|
-| バックエンド | Python 3.11 / FastAPI |
+| バックエンド | Python 3.13 / FastAPI |
 | 非同期処理 | asyncio（プロセス内ジョブ管理） |
 | クロール | Playwright（Chromium）／ httpx + BeautifulSoup をフォールバック |
 | フロントエンド | サーバーサイドテンプレート＋素のJavaScript（ビルド工程なし） |

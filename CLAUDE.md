@@ -32,7 +32,7 @@
 
 ## 技術スタック
 
-- バックエンド: Python 3.11 / FastAPI
+- バックエンド: Python 3.13 / FastAPI
 - 非同期処理: asyncio（プロセス内ジョブ管理）＋ Server-Sent Events
 - クロール: Playwright (Chromium)、フォールバックに httpx + BeautifulSoup
 - フロントエンド: サーバーサイドテンプレート + 素のJavaScript（ビルド工程なし）
@@ -50,6 +50,7 @@ app/
   config.py          環境変数の読み込み
   auth.py            Google OAuth・セッション
   db.py              SQLite（履歴・キャッシュ・除外ドメイン）
+  cache.py           外部APIキャッシュの共通ヘルパー（get/set、TTL付き）
   jobs.py            ジョブ管理・SSE イベント
   pipeline.py        診断パイプライン（7工程の統括）
   scoring.py         配点表の実装 ★数値の定義はここだけ
@@ -68,18 +69,25 @@ data/                SQLite ファイル（Git管理外）
 ## 開発コマンド
 
 ```bash
+python3.13 -m venv .venv && source .venv/bin/activate   # システムのdefault pythonが3.13でない場合あり
 pip install -r requirements.txt
 playwright install chromium
 uvicorn app.main:app --reload    # http://localhost:8000
 pytest                            # テスト
 ```
 
+## リポジトリ
+
+GitHub: https://github.com/NobuharuIshigooka/seo-llmo-tool.git（main ブランチ）
+
+`.env` `.claude/` `概要/` `data/` はコミット対象外（`.gitignore` 参照）。`概要/` には企画書等の資料が入るが、コードリポジトリには含めない運用。
+
 ## 実装状況
 
 工程ごとの作業単位の詳細チェックリストは `docs/progress.md` にある。作業完了後は必ずそちらを更新し、工程全体が完了した時点で以下も更新すること。
 
-- [ ] 工程1 基盤（FastAPI・Google OAuth・DB・ジョブ管理・SSE）※着手中：ディレクトリ構成・requirements・.venv・`/healthz` まで完了
-- [ ] 工程2 診断エンジン（クロール・SerpApi・PSI・DataForSEO・Claude）
+- [ ] 工程1 基盤（FastAPI・Google OAuth・DB・ジョブ管理・SSE）※残り：`POST /api/audits`・SSEエンドポイントの配線（工程2完了後に実施）、診断上限のレート制限
+- [ ] 工程2 診断エンジン（クロール・SerpApi・PSI・DataForSEO・Claude）※着手中：`app/cache.py`・`app/clients/crawler.py` まで完了
 - [ ] 工程3 スコアリング
 - [ ] 工程4 結果画面 ※`docs/frontend.md` 確定後
 - [ ] 工程5 共有URL・PDF出力・履歴・除外ドメイン管理

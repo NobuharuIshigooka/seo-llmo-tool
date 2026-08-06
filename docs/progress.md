@@ -11,34 +11,36 @@ CLAUDE.md の実装状況チェックリスト（工程1〜6）を作業単位�
 
 - [x] ディレクトリ構成の作成（`app/clients` `app/templates` `app/static` `data`）
 - [x] `requirements.txt` 作成（FastAPI / Playwright / httpx+BeautifulSoup / Authlib / anthropic SDK / pytest 等）
-- [x] Python 3.11 で `.venv` 作成、依存インストール、`playwright install chromium`
+- [x] Python 3.13 で `.venv` 作成、依存インストール、`playwright install chromium`
 - [x] `.env.example` 作成（`docs/deployment.md` の環境変数一覧に準拠）、`.gitignore` 作成
+- [x] GitHubリポジトリ初期化・初回コミット・push（https://github.com/NobuharuIshigooka/seo-llmo-tool.git）
 - [x] `app/config.py`：環境変数読み込み
 - [x] `app/main.py`：FastAPI エントリ、`/healthz` のみ実装・起動確認済み
-- [ ] `app/db.py`：SQLite初期化・テーブル定義（`users` / `audits` / `cache` / `excluded_domains`）
-- [ ] `app/auth.py`：Google OAuth 2.0（Authorization Code フロー）
-  - [ ] `/auth/login` `/auth/callback` `/auth/logout`
-  - [ ] `hd` パラメータ＋サーバー側での email ドメイン再検証（`ALLOWED_HD` / `ALLOWED_EMAILS`）
-  - [ ] セッションクッキー（署名付き・HttpOnly・Secure・SameSite=Lax）
-  - [ ] `/healthz` 以外の全エンドポイントに認証必須を適用
-- [ ] `app/jobs.py`：ジョブ管理
-  - [ ] プロセス内メモリ（dict）でジョブ状態を保持
-  - [ ] `POST /api/audits` で job_id を即返却し `asyncio.create_task()` でバックグラウンド実行
-  - [ ] SSE イベント配信の仕組み（工程ごとの progress イベント）
-- [ ] `GET /api/audits/{id}/events`（SSE）
-  - [ ] 15秒ごとのキープアライブコメント
+- [x] `app/db.py`：SQLite初期化・テーブル定義（`users` / `audits` / `cache` / `excluded_domains`）
+- [x] `app/auth.py`：Google OAuth 2.0（Authorization Code フロー）
+  - [x] `/auth/login` `/auth/callback` `/auth/logout`
+  - [x] `hd` パラメータ＋サーバー側での email ドメイン再検証（`ALLOWED_HD` / `ALLOWED_EMAILS`）
+  - [x] セッションクッキー（署名付き・HttpOnly・Secure・SameSite=Lax）
+  - [x] `/healthz` 以外の全エンドポイントに認証必須を適用（`app/main.py` のミドルウェアで一括適用、`/auth/*` はログインフロー自体のため除外）
+- [x] `app/jobs.py`：ジョブ管理
+  - [x] プロセス内メモリ（dict）でジョブ状態を保持
+  - [x] `job_id` を即返却し `asyncio.create_task()` でバックグラウンド実行する `JobManager.create_job()`
+  - [x] SSE イベント配信の仕組み（工程ごとの progress イベント、`app/jobs.py` の `sse_stream()`。ユニットテスト `tests/test_jobs.py` で検証済み）
+- [ ] `GET /api/audits/{id}/events`（SSE）※ `app/pipeline.py`（工程2）着手後、実際のパイプラインと合わせて配線する
+  - [x] 15秒ごとのキープアライブコメント（`app/jobs.py` の `sse_stream()` に実装済み、エンドポイント配線待ち）
   - [ ] レスポンスヘッダ `Cache-Control: no-cache` / `X-Accel-Buffering: no`
-  - [ ] 後から接続したクライアントへの過去イベント再送
+  - [x] 後から接続したクライアントへの過去イベント再送（`Job.subscribe()` で実装・テスト済み）
 - [ ] 1日の診断上限（`DAILY_AUDIT_LIMIT`、人あたり）のレート制限実装
 
 ## 工程2 診断エンジン（クロール・SerpApi・PSI・DataForSEO・Claude）
 
-- [ ] `app/clients/crawler.py`
-  - [ ] Playwright (Chromium) による自社・競合クロール
-  - [ ] 失敗時のみ httpx + BeautifulSoup にフォールバック
-  - [ ] robots.txt 尊重（取得不可時は許可扱い）／User-Agent 明示（連絡先URL含む）
-  - [ ] 同一ドメイン同時アクセス制限（3並列）／タイムアウト25秒
-  - [ ] キャッシュ `crawl:{url}`（TTL: `CRAWL_CACHE_TTL`）
+- [x] `app/clients/crawler.py`
+  - [x] Playwright (Chromium) による自社・競合クロール
+  - [x] 失敗時のみ httpx + BeautifulSoup にフォールバック
+  - [x] robots.txt 尊重（取得不可時は許可扱い）／User-Agent 明示（連絡先URL含む）
+  - [x] 同一ドメイン同時アクセス制限（3並列）／タイムアウト25秒
+  - [x] キャッシュ `crawl:{url}`（TTL: `CRAWL_CACHE_TTL`、共通ヘルパー `app/cache.py` 経由）
+  - [x] `docs/scoring.md` の採点に必要な項目を一括抽出（title / meta description / h1・h2 / 本文 / 冒頭段落 / viewport / JSON-LD種別 / noindex / canonical / HTTPS / リスト・表数）。ユニットテスト `tests/test_crawler.py` で検証済み
 - [ ] `app/clients/llm.py`（Claude API）
   - [ ] `extract_keywords()`：title/meta description/見出し/本文から8個推定、JSON配列出力、temperature=0.0
   - [ ] `explain_competitors()`：競合との数値差分の自然文化、temperature=0.3
