@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block title %}SEO/LLMO診断ツール{% endblock %}
+
+{% block body %}
+<header class="app-header" id="app-header">
+  <div class="container">
+    <p class="app-title">SEO/LLMO診断ツール</p>
+    <nav class="app-nav">
+      <a href="/auth/logout">ログアウト（{{ user_name }}）</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <!-- 入力画面（frontend.md 5.1） -->
+  <section id="view-input" class="container">
+    <div class="intro">
+      <h1>あなたのサイトをSEO・LLMO診断</h1>
+      <p>URLを入力するだけで、SEO・LLMOの診断結果を約90秒で表示します</p>
+    </div>
+
+    <form id="audit-form" class="audit-form" novalidate>
+      <input
+        type="text"
+        id="url-input"
+        class="url-input"
+        placeholder="ここにURLを入力して下さい。"
+        autocomplete="off"
+      >
+      <p class="field-error" id="url-error"></p>
+
+      <div class="device-select">
+        <label><input type="radio" name="device" value="both" checked> PC・スマホ両方</label>
+        <label><input type="radio" name="device" value="desktop"> PCのみ</label>
+        <label><input type="radio" name="device" value="mobile"> スマホのみ</label>
+      </div>
+
+      <button type="submit" class="btn-primary" id="submit-btn">診断する</button>
+    </form>
+  </section>
+
+  <!-- 進捗表示（frontend.md 5.2）。診断開始で入力欄は上部バーに収納される -->
+  <section id="view-progress" class="container hidden">
+    <div class="progress-bar-collapsed">
+      <span class="url-label" id="progress-url-label"></span>
+    </div>
+    <div class="card">
+      <ol class="progress-rail" id="progress-rail"></ol>
+    </div>
+  </section>
+
+  <!-- 診断結果（frontend.md 5.3〜5.8） -->
+  <section id="view-result" class="hidden">
+    <div class="result-header">
+      <div class="container">
+        <span class="domain" id="result-domain"></span>
+        <span class="meta">トップページを診断した結果です ・ <span id="result-date"></span></span>
+      </div>
+    </div>
+
+    <div class="container">
+      <div id="warning-banner-wrap"></div>
+
+      <div class="top-row">
+        <div class="card total-score">
+          <p class="section-title">総合スコア</p>
+          <span class="value tabular-nums" id="total-score-value"></span>
+          <span class="max">/ 100</span>
+          <div class="score-track">
+            <div class="fill" id="score-fill"></div>
+            <div class="marker" id="score-marker"></div>
+          </div>
+          <div class="score-ticks"><span>0</span><span>40</span><span>60</span><span>80</span><span>100</span></div>
+          <span class="band-badge" id="band-badge"></span>
+        </div>
+
+        <div class="card sales-summary">
+          <p class="section-title">営業トーク要約</p>
+          <p id="sales-summary-text"></p>
+        </div>
+      </div>
+
+      <div class="card" id="category-scores-card">
+        <p class="section-title">カテゴリ別スコア</p>
+        <div id="category-scores"></div>
+      </div>
+
+      <div class="card" id="improvements-card">
+        <p class="section-title">最初に着手すべき3項目</p>
+        <ul class="improvement-list" id="improvement-list"></ul>
+      </div>
+
+      <div class="card" id="keywords-card">
+        <p class="section-title">対策キーワード</p>
+        <div class="keyword-editor" id="keyword-editor"></div>
+        <div class="keyword-add">
+          <input type="text" id="keyword-add-input" placeholder="キーワードを追加">
+          <button type="button" class="btn-secondary" id="keyword-add-btn">追加</button>
+        </div>
+        <button type="button" class="btn-secondary" id="rerun-btn" style="margin-top:12px;">このキーワードで再診断</button>
+      </div>
+
+      <div class="card" id="serp-card">
+        <p class="section-title">検索順位とAI Overview</p>
+        <table class="data-table" id="serp-table">
+          <thead>
+            <tr id="serp-table-head"></tr>
+          </thead>
+          <tbody id="serp-table-body"></tbody>
+        </table>
+      </div>
+
+      <div class="card hidden" id="competitors-card">
+        <p class="section-title">競合3社との比較</p>
+        <table class="data-table" id="competitors-table">
+          <thead><tr id="competitors-table-head"></tr></thead>
+          <tbody id="competitors-table-body"></tbody>
+        </table>
+        <p class="section-note" id="competitors-explanation"></p>
+      </div>
+    </div>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/audit.js"></script>
+{% endblock %}

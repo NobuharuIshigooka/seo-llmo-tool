@@ -1,0 +1,103 @@
+from unittest.mock import AsyncMock, patch
+
+import pytest
+
+from app.clients import serp
+
+SAMPLE_RESPONSE = {
+    "organic_results": [
+        {"position": 1, "link": "https://competitor-a.co.jp/page"},
+        {"position": 2, "link": "https://www.example.co.jp/"},
+        {"position": 3, "link": "https://competitor-b.co.jp/"},
+    ],
+    "ai_overview": {
+        "references": [
+            {"link": "https://www.example.co.jp/"},
+        ]
+    },
+}
+
+SAMPLE_RESPONSE_NO_AI_OVERVIEW = {
+    "organic_results": [
+        {"position": 5, "link": "https://competitor-a.co.jp/"},
+    ],
+}
+
+
+@pytest.fixture(autouse=True)
+def _isolated_cache():
+    store: dict[str, object] = {}
+
+    def fake_get(key):
+        return store.get(key)
+
+    def fake_set(key, value, ttl_seconds):
+        store[key] = value
+
+    with patch.object(serp.cache, "get", side_effect=fake_get), \
+         patch.object(serp.cache, "set", side_effect=fake_set):
+        yield
+
+
+def test_normalize_domain_strips_www():
+    assert serp._normalize_domain("https://www.example.co.jp/path") == "example.co.jp"
+    assert serp._normalize_domain("https://example.co.jp/path") == "example.co.jp"
+
+
+async def test_search_finds_own_rank_and_ai_overview_citation():
+    provider = serp.SerpApiProvider(api_key="dummy")
+    with patch.object(provider, "_fetch", new=AsyncMock(return_value=SAMPLE_RESPONSE)):
+        result = await provider.search("キーワード", "desktop", "example.co.jp")
+
+    assert result.rank == 2
+    assert result.ai_overview_shown is True
+    assert result.ai_overview_cited is True
+    assert result.organic_domains == ["competitor-a.co.jp", "example.co.jp", "competitor-b.co.jp"]
+
+
+async def test_search_handles_no_ai_overview():
+    provider = serp.SerpApiProvider(api_key="dummy")
+    with patch.object(provider, "_fetch", new=AsyncMock(return_value=SAMPLE_RESPONSE_NO_AI_OVERVIEW)):
+        result = await provider.search("キーワード", "mobile", "example.co.jp")
+
+    assert result.rank is None
+    assert result.ai_overview_shown is False
+    assert result.ai_overview_cited is False
+
+
+async def test_search_uses_cache_on_second_call():
+    provider = serp.SerpApiProvider(api_key="dummy")
+    with patch.object(provider, "_fetch", new=AsyncMock(return_value=SAMPLE_RESPONSE)) as mock_fetch:
+        await provider.search("キーワード", "desktop", "example.co.jp")
+        await provider.search("キーワード", "desktop", "example.co.jp")
+
+    assert mock_fetch.call_count == 1
+
+
+async def test_fetch_raises_serp_error_on_http_failure():
+    provider = serp.SerpApiProvider(api_key="dummy")
+    with patch("httpx.AsyncClient.get", new=AsyncMock(side_effect=Exception("network error"))):
+        with pytest.raises(serp.SerpError):
+            await provider._fetch("キーワード", "desktop")
+
+
+async def test_search_all_skips_failed_and_returns_successful():
+    async def fake_search(keyword, device, own_domain):
+        if keyword == "fail":
+            raise serp.SerpError("boom")
+        return serp.SerpResult(keyword=keyword, device=device, rank=1)
+
+    with patch.object(serp, "get_provider", return_value=type("P", (), {"search": staticmethod(fake_search)})()):
+        results = await serp.search_all(["ok", "fail"], "example.co.jp", ["desktop"])
+
+    assert len(results) == 1
+    assert results[0].keyword == "ok"
+
+
+def test_get_provider_raises_on_unknown_provider():
+    from dataclasses import replace
+
+    unknown_settings = replace(serp.settings, serp_provider="unknown")
+    with patch.object(serp, "settings", unknown_settings):
+        with pytest.raises(serp.SerpError):
+            serp.get_provider()

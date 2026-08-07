@@ -28,7 +28,7 @@
 | `docs/deployment.md` | 環境変数・デプロイ手順 | 環境構築・デプロイ時 |
 | `docs/progress.md` | 実装進捗の詳細タスク一覧（工程1〜6の作業単位チェックリスト） | 作業開始前・作業完了後の進捗更新時 |
 
-配色（紺＋金）・書体・サイズは `docs/frontend.md` に確定値がある。**そこにない色や文字サイズを勝手に足さないこと。** 特に、スコアが低いカテゴリのバーを赤くしない（商談の場で攻撃的に見えるため、全カテゴリ同色）。
+配色（モノクロ基調、評価バンド色のみ例外）・書体・サイズは `docs/frontend.md` に確定値がある。**そこにない色や文字サイズを勝手に足さないこと。** 特に、スコアが低いカテゴリのバーを赤くしない（商談の場で攻撃的に見えるため、全カテゴリ同色）。
 
 ## 技術スタック
 
@@ -86,10 +86,10 @@ GitHub: https://github.com/NobuharuIshigooka/seo-llmo-tool.git（main ブラン�
 
 工程ごとの作業単位の詳細チェックリストは `docs/progress.md` にある。作業完了後は必ずそちらを更新し、工程全体が完了した時点で以下も更新すること。
 
-- [ ] 工程1 基盤（FastAPI・Google OAuth・DB・ジョブ管理・SSE）※残り：`POST /api/audits`・SSEエンドポイントの配線（工程2完了後に実施）、診断上限のレート制限
-- [ ] 工程2 診断エンジン（クロール・SerpApi・PSI・DataForSEO・Claude）※着手中：`app/cache.py`・`app/clients/crawler.py` まで完了
-- [ ] 工程3 スコアリング
-- [ ] 工程4 結果画面 ※`docs/frontend.md` 確定後
+- [x] 工程1 基盤（FastAPI・Google OAuth・DB・ジョブ管理・SSE）
+- [x] 工程2 診断エンジン（クロール・SerpApi・PSI・DataForSEO・Claude）※`app/pipeline.py` まで完了。実行順は `serp/psi 並行 → competitors → backlinks`（`docs/architecture.md`参照、当初案から変更）
+- [x] 工程3 スコアリング（工程2に先行して実施。`app/scoring.py`）
+- [x] 工程4 結果画面（診断入力・進捗レール・診断結果・キーワード手動編集→再診断）
 - [ ] 工程5 共有URL・PDF出力・履歴・除外ドメイン管理
 - [ ] 工程6 Cloud Run デプロイ・実サイト検証・閾値調整
 
