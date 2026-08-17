@@ -59,6 +59,53 @@ def get_excluded_domains() -> set[str]:
     return {row["domain"] for row in rows}
 
 
+def list_excluded_domains() -> list[sqlite3.Row]:
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT domain, reason, created_by, created_at FROM excluded_domains ORDER BY created_at DESC"
+        ).fetchall()
+
+
+def add_excluded_domain(domain: str, reason: str | None, created_by: str) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO excluded_domains(domain, reason, created_by) VALUES (?, ?, ?)
+            ON CONFLICT(domain) DO UPDATE SET reason = excluded.reason
+            """,
+            (domain, reason, created_by),
+        )
+        conn.commit()
+
+
+def remove_excluded_domain(domain: str) -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM excluded_domains WHERE domain = ?", (domain,))
+        conn.commit()
+
+
+def list_audits(*, limit: int = 100) -> list[sqlite3.Row]:
+    """診断履歴一覧（新しい順）。ドメイン単位での一覧表示に使う。"""
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT id, url, domain, created_by, created_at, finished_at, status, devices, result
+            FROM audits
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+
+
+def get_audit(audit_id: str) -> sqlite3.Row | None:
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT id, url, domain, created_by, created_at, finished_at, status, devices, result FROM audits WHERE id = ?",
+            (audit_id,),
+        ).fetchone()
+
+
 def count_audits_today(created_by: str, *, now: datetime | None = None) -> int:
     """JST基準の当日0時〜翌0時に created_by が起票した診断件数を数える。"""
     now_jst = (now or datetime.now(timezone.utc)).astimezone(JST)

@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+
+{% block title %}競合除外ドメイン管理 - SEO/LLMO診断ツール{% endblock %}
+
+{% block body %}
+<header class="app-header">
+  <div class="container">
+    <p class="app-title">SEO/LLMO診断ツール</p>
+    <nav class="app-nav">
+      <a href="/">診断入力に戻る</a>
+      <a href="/auth/logout" style="margin-left:16px;">ログアウト（{{ user_name }}）</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="container" style="margin-top:32px;">
+    <div class="card" id="serp-account-card">
+      <p class="section-title">SerpApi 残枠</p>
+      <p class="section-note" id="serp-account-text">読み込み中...</p>
+    </div>
+
+    <div class="card">
+      <p class="section-title">競合除外ドメイン管理</p>
+      <p class="section-note">ポータルサイト・比較サイトなど、競合として抽出したくないドメインを登録します。</p>
+
+      <div class="keyword-add">
+        <input type="text" id="domain-input" placeholder="ドメイン（例：example.com）">
+        <input type="text" id="reason-input" placeholder="除外理由（任意）">
+        <button type="button" class="btn-secondary" id="add-domain-btn">追加</button>
+      </div>
+
+      <div class="table-scroll" style="margin-top:16px;">
+        <table class="data-table" id="excluded-table">
+          <thead>
+            <tr><th>ドメイン</th><th>理由</th><th>登録者</th><th>登録日時</th><th></th></tr>
+          </thead>
+          <tbody id="excluded-table-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function escapeHtml(value) {
+    const div = document.createElement("div");
+    div.textContent = String(value ?? "");
+    return div.innerHTML;
+  }
+
+  async function loadDomains() {
+    const resp = await fetch("/api/excluded-domains");
+    const data = await resp.json();
+    const body = document.getElementById("excluded-table-body");
+    body.innerHTML = "";
+
+    for (const d of data.domains) {
+      const tr = document.createElement("tr");
+      const date = new Date(d.created_at.replace(" ", "T") + "Z").toLocaleString("ja-JP");
+      tr.innerHTML = `
+        <td>${escapeHtml(d.domain)}</td>
+        <td>${escapeHtml(d.reason || "")}</td>
+        <td>${escapeHtml(d.created_by)}</td>
+        <td>${date}</td>
+        <td><button type="button" class="btn-secondary remove-btn" data-domain="${escapeHtml(d.domain)}">削除</button></td>
+      `;
+      body.appendChild(tr);
+    }
+
+    body.querySelectorAll(".remove-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        await fetch(`/api/excluded-domains/${encodeURIComponent(btn.dataset.domain)}`, { method: "DELETE" });
+        loadDomains();
+      });
+    });
+  }
+
+  document.getElementById("add-domain-btn").addEventListener("click", async () => {
+    const domainInput = document.getElementById("domain-input");
+    const reasonInput = document.getElementById("reason-input");
+    const domain = domainInput.value.trim();
+    if (!domain) return;
+
+    await fetch("/api/excluded-domains", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domain, reason: reasonInput.value.trim() || null }),
+    });
+    domainInput.value = "";
+    reasonInput.value = "";
+    loadDomains();
+  });
+
+  loadDomains();
+
+  async function loadSerpAccount() {
+    const el = document.getElementById("serp-account-text");
+    try {
+      const resp = await fetch("/api/serp-account");
+      const data = await resp.json();
+      if (!data.available) {
+        el.textContent = "残枠情報を取得できませんでした。";
+        return;
+      }
+      el.textContent = `残り ${data.plan_searches_left ?? "-"} / 月間 ${data.searches_per_month ?? "-"} 件（今月の利用: ${data.this_month_usage ?? "-"} 件）`;
+    } catch (e) {
+      el.textContent = "残枠情報を取得できませんでした。";
+    }
+  }
+
+  loadSerpAccount();
+</script>
+{% endblock %}

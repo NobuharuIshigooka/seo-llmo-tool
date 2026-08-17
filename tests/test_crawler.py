@@ -20,6 +20,11 @@ SAMPLE_HTML = """
   <p>これは最初の段落です。</p>
   <ul><li>項目1</li></ul>
   <table><tr><td>表</td></tr></table>
+  <a href="/about">会社概要</a>
+  <a href="https://example.co.jp/contact">お問い合わせ</a>
+  <a href="https://other.co.jp/">外部サイト</a>
+  <a href="#section">ページ内リンク</a>
+  <a href="mailto:info@example.co.jp">メール</a>
 </body>
 </html>
 """
@@ -56,6 +61,7 @@ async def test_fetch_parses_html_via_playwright():
     assert result.json_ld_types == ["FAQPage"]
     assert result.list_table_count == 2
     assert result.first_paragraph == "これは最初の段落です。"
+    assert result.internal_link_count == 2
 
 
 async def test_fetch_falls_back_to_httpx_when_playwright_fails():

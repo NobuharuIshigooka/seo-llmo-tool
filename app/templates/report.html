@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+
+{% block title %}{{ audit.domain }}の診断結果 - SEO/LLMO診断ツール{% endblock %}
+
+{% block body %}
+<header class="app-header">
+  <div class="container">
+    <p class="app-title">SEO/LLMO診断ツール</p>
+    {% if not is_pdf %}
+    <nav class="app-nav">
+      <a href="/">診断入力に戻る</a>
+    </nav>
+    {% endif %}
+  </div>
+</header>
+
+<main>
+  <section id="view-result">
+    <div class="result-header">
+      <div class="container">
+        <span class="domain">{{ audit.domain }}</span>
+        <span class="meta">トップページを診断した結果です ・ {{ audit.created_at_jst }}</span>
+      </div>
+    </div>
+
+    <div class="container">
+      {% if not is_pdf %}
+      <div class="result-actions">
+        <button type="button" class="btn-secondary" id="copy-share-url-btn" data-share-url="{{ share_url }}">共有URLをコピー</button>
+        <a class="btn-secondary" href="/report/{{ audit.id }}.pdf" target="_blank" rel="noopener">PDFダウンロード</a>
+      </div>
+      {% endif %}
+
+      {% if result.warnings %}
+      <div class="warning-banner">
+        <strong>一部の項目が取得できませんでした</strong>
+        <ul>
+          {% for w in result.warnings %}
+          <li>{{ w }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      <div class="top-row">
+        <div class="card total-score">
+          <p class="section-title">総合スコア</p>
+          <span class="value tabular-nums">{{ result.score.total_score }}</span>
+          <span class="max">/ 100</span>
+          <div class="score-track">
+            <div class="fill" style="width:{{ result.score.total_score }}%"></div>
+            <div class="marker" style="left:calc({{ result.score.total_score }}% - 1.5px)"></div>
+          </div>
+          <div class="score-ticks"><span>0</span><span>40</span><span>60</span><span>80</span><span>100</span></div>
+          <span class="band-badge {{ result.score.band }}">{{ band_labels.get(result.score.band, result.score.band) }}</span>
+        </div>
+
+        <div class="card sales-summary">
+          <p class="section-title">営業トーク要約</p>
+          <p>{{ result.sales_summary }}</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <p class="section-title">カテゴリ別スコア</p>
+        {% for cat in result.score.categories %}
+        <div class="category-row" style="cursor:default;">
+          <span class="name">{{ cat.label }}</span>
+          <span class="bar-track {{ '' if cat.measured else 'unmeasured' }}">
+            <span class="fill" style="width:{{ ((cat.score / cat.weight * 100) if cat.measured else 0) | round | int }}%"></span>
+          </span>
+          <span class="score tabular-nums">{{ "%.1f"|format(cat.score) ~ "/" ~ cat.weight if cat.measured else "未計測" }}</span>
+        </div>
+        <div class="category-detail">
+          {% for item in cat["items"] %}
+          <div class="item-row">
+            <span class="item-name">{{ item.label }}</span>
+            <span>{{ item.evidence }} ・ {{ "%.1f"|format(item.score) }}/{{ item.max_score }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        {% endfor %}
+      </div>
+
+      <div class="card">
+        <p class="section-title">最初に着手すべき3項目</p>
+        <ul class="improvement-list">
+          {% if result.score.improvements %}
+            {% for imp in result.score.improvements %}
+            <li>{{ imp.label }}<span class="impact">（{{ imp.category }}）</span></li>
+            {% endfor %}
+          {% else %}
+            <li>改善優先度の高い項目はありませんでした。</li>
+          {% endif %}
+        </ul>
+      </div>
+
+      <div class="card">
+        <p class="section-title">対策キーワード</p>
+        <div class="keyword-editor">
+          {% for kw in result.keywords %}
+          <span class="keyword-chip">{{ kw }}</span>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="card">
+        <p class="section-title">検索順位とAI Overview</p>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>キーワード</th>
+                {% if 'desktop' in audit.devices %}<th>PC</th>{% endif %}
+                {% if 'mobile' in audit.devices %}<th>スマホ</th>{% endif %}
+                <th>AI Overview</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in serp_rows %}
+              <tr class="{{ 'cited' if row.cited else '' }}">
+                <td>{{ row.keyword }}</td>
+                {% if 'desktop' in audit.devices %}<td>{{ row.desktop_text }}</td>{% endif %}
+                {% if 'mobile' in audit.devices %}<td>{{ row.mobile_text }}</td>{% endif %}
+                <td>{{ row.ai_overview_text }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {% if comparison_rows %}
+      <div class="card">
+        <p class="section-title">競合3社との比較</p>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>ドメイン</th>
+                {% for key, label in comparison_metric_labels %}
+                <th>{{ label }}</th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in comparison_rows %}
+              <tr class="{{ 'own-row' if row.is_own else '' }}">
+                <td>{{ row.domain }}{{ '（自社）' if row.is_own else '' }}</td>
+                {% for value in row["values"] %}
+                <td>{{ value }}</td>
+                {% endfor %}
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if result.competitor_explanation %}
+        <p class="section-note">{{ result.competitor_explanation }}</p>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      {% if not is_pdf %}
+      <div class="result-actions">
+        <button type="button" class="btn-secondary" id="copy-share-url-btn-bottom" data-share-url="{{ share_url }}">共有URLをコピー</button>
+        <a class="btn-secondary" href="/report/{{ audit.id }}.pdf" target="_blank" rel="noopener">PDFダウンロード</a>
+      </div>
+      {% endif %}
+    </div>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+{% if not is_pdf %}
+<script>
+  function copyShareUrl(button) {
+    const url = button.getAttribute("data-share-url");
+    navigator.clipboard.writeText(url).then(() => {
+      const original = button.textContent;
+      button.textContent = "コピーしました";
+      setTimeout(() => { button.textContent = original; }, 2000);
+    });
+  }
+  document.getElementById("copy-share-url-btn").addEventListener("click", (e) => copyShareUrl(e.currentTarget));
+  document.getElementById("copy-share-url-btn-bottom").addEventListener("click", (e) => copyShareUrl(e.currentTarget));
+</script>
+{% endif %}
+{% endblock %}

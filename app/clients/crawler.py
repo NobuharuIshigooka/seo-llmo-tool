@@ -35,6 +35,7 @@ class CrawlResult:
     has_canonical: bool = False
     is_https: bool = False
     list_table_count: int = 0
+    internal_link_count: int = 0
     fetched_via: str = "playwright"  # playwright / httpx
 
 
@@ -108,6 +109,17 @@ def _parse_html(url: str, html: str, fetched_via: str) -> CrawlResult:
                 result.json_ld_types.extend(types)
 
     result.list_table_count = len(soup.find_all(["ul", "ol", "table"]))
+
+    page_domain = urlparse(url).netloc
+    internal_links = 0
+    for a in soup.find_all("a", href=True):
+        href = a["href"].strip()
+        if not href or href.startswith("#") or href.startswith(("mailto:", "tel:", "javascript:")):
+            continue
+        link_domain = urlparse(href).netloc
+        if not link_domain or link_domain == page_domain:
+            internal_links += 1
+    result.internal_link_count = internal_links
 
     body = soup.find("body")
     if body:

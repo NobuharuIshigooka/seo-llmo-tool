@@ -101,3 +101,53 @@ def test_get_provider_raises_on_unknown_provider():
     with patch.object(serp, "settings", unknown_settings):
         with pytest.raises(serp.SerpError):
             serp.get_provider()
+
+
+async def test_get_account_info_returns_parsed_fields():
+    class FakeResp:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {
+                "plan_searches_left": 1234,
+                "searches_per_month": 5000,
+                "this_month_usage": 3766,
+                "account_email": "ops@example.co.jp",
+            }
+
+    with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=FakeResp())):
+        info = await serp.get_account_info()
+
+    assert info == {
+        "plan_searches_left": 1234,
+        "searches_per_month": 5000,
+        "this_month_usage": 3766,
+        "account_email": "ops@example.co.jp",
+    }
+
+
+async def test_get_account_info_returns_none_on_failure():
+    with patch("httpx.AsyncClient.get", new=AsyncMock(side_effect=Exception("network error"))):
+        info = await serp.get_account_info()
+
+    assert info is None
+
+
+async def test_get_account_info_uses_cache_on_second_call():
+    class FakeResp:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"plan_searches_left": 1, "searches_per_month": 1, "this_month_usage": 1, "account_email": "a@b.co.jp"}
+
+    with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=FakeResp())) as mock_get:
+        await serp.get_account_info()
+        await serp.get_account_info()
+
+    assert mock_get.call_count == 1

@@ -130,7 +130,7 @@
         markStageWarning(event.stage);
       } else if (event.type === "done") {
         source.close();
-        renderResult(event.result);
+        renderResult(event.result, jobId);
       } else if (event.type === "error") {
         source.close();
         showFatalError(event.message);
@@ -153,11 +153,12 @@
     return { good: "良好", fair: "標準", weak: "要改善", poor: "急ぎ改善" }[band] || band;
   }
 
-  function renderResult(result) {
+  function renderResult(result, auditId) {
     currentKeywords = [...(result.keywords || [])];
 
     document.getElementById("result-domain").textContent = result.domain;
     document.getElementById("result-date").textContent = new Date().toLocaleDateString("ja-JP");
+    renderShareActions(auditId);
 
     renderWarnings(result.warnings || []);
     renderTotalScore(result.score);
@@ -169,6 +170,26 @@
     renderCompetitors(result);
 
     showView(viewResult);
+  }
+
+  function renderShareActions(auditId) {
+    const shareUrl = `${window.location.origin}/report/${auditId}`;
+    const pdfUrl = `/report/${auditId}.pdf`;
+
+    for (const id of ["copy-share-url-btn", "copy-share-url-btn-bottom"]) {
+      const btn = document.getElementById(id);
+      btn.onclick = () => {
+        navigator.clipboard.writeText(shareUrl).then(() => {
+          const original = btn.textContent;
+          btn.textContent = "コピーしました";
+          setTimeout(() => { btn.textContent = original; }, 2000);
+        });
+      };
+    }
+
+    for (const id of ["pdf-download-link", "pdf-download-link-bottom"]) {
+      document.getElementById(id).href = pdfUrl;
+    }
   }
 
   function renderWarnings(warnings) {
@@ -305,37 +326,58 @@
     return r.ai_overview_cited ? "表示あり・引用されている" : "表示あり";
   }
 
+  const COMPARISON_METRIC_ORDER = [
+    "char_count", "h2_count", "qa_heading_count", "has_faq_schema",
+    "structured_data_type_count", "list_table_count", "internal_link_count",
+    "eeat_count", "referring_domains",
+  ];
+
+  function formatMetricValue(key, value) {
+    if (value === null || value === undefined) return "未計測";
+    if (key === "has_faq_schema") return value ? "あり" : "なし";
+    if (typeof value === "number") return value.toLocaleString("ja-JP");
+    return String(value);
+  }
+
   function renderCompetitors(result) {
     const card = document.getElementById("competitors-card");
     const competitors = result.competitors || [];
-    if (!competitors.length) {
+    const comparison = result.competitor_comparison || {};
+    const comparedDomains = Object.keys(comparison).filter((d) => d !== result.domain);
+    if (!competitors.length || !comparedDomains.length) {
       card.classList.add("hidden");
       return;
     }
     card.classList.remove("hidden");
 
-    const backlinkData = result.competitor_backlinks || {};
-    const ownBacklinks = result.score.categories.find((c) => c.key === "authority");
+    const labels = result.competitor_comparison_labels || {};
+    labels.referring_domains = labels.referring_domains || "参照ドメイン数";
 
     const head = document.getElementById("competitors-table-head");
-    head.innerHTML = `<th>ドメイン</th><th>参照ドメイン数</th><th>ドメインランク</th>`;
+    head.innerHTML = `<th>ドメイン</th>` + COMPARISON_METRIC_ORDER.map((k) => `<th>${escapeHtml(labels[k] || k)}</th>`).join("");
+
     const body = document.getElementById("competitors-table-body");
     body.innerHTML = "";
 
-    const ownRow = document.createElement("tr");
-    ownRow.className = "own-row";
-    ownRow.innerHTML = `<td>${escapeHtml(result.domain)}（自社）</td><td colspan="2">${ownBacklinks && ownBacklinks.measured ? "カテゴリ別スコアを参照" : "未計測"}</td>`;
-    body.appendChild(ownRow);
+    const ownMetrics = comparison[result.domain];
+    if (ownMetrics) {
+      const ownRow = document.createElement("tr");
+      ownRow.className = "own-row";
+      ownRow.innerHTML = `<td>${escapeHtml(result.domain)}（自社）</td>` +
+        COMPARISON_METRIC_ORDER.map((k) => `<td>${formatMetricValue(k, ownMetrics[k])}</td>`).join("");
+      body.appendChild(ownRow);
+    }
 
-    for (const domain of competitors) {
-      const bl = backlinkData[domain];
+    for (const domain of comparedDomains) {
+      const metrics = comparison[domain];
       const tr = document.createElement("tr");
-      tr.innerHTML = `<td>${escapeHtml(domain)}</td><td>${bl ? bl.referring_domains : "未計測"}</td><td>${bl ? bl.rank : "未計測"}</td>`;
+      tr.innerHTML = `<td>${escapeHtml(domain)}</td>` +
+        COMPARISON_METRIC_ORDER.map((k) => `<td>${formatMetricValue(k, metrics[k])}</td>`).join("");
       body.appendChild(tr);
     }
 
     document.getElementById("competitors-explanation").textContent =
-      "詳細な指標比較（本文量・見出し構成・E-E-A-T要素等）は今後のアップデートで追加予定です。";
+      result.competitor_explanation || "";
   }
 
   function escapeHtml(value) {

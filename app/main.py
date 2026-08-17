@@ -1,4 +1,5 @@
 import json
+import secrets
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
@@ -9,14 +10,18 @@ from starlette.responses import JSONResponse, RedirectResponse, StreamingRespons
 
 from app.auth import CurrentUserDep, read_session_cookie, router as auth_router, SESSION_COOKIE
 from app.config import settings
+from app import db
 from app.db import count_audits_today, get_connection, init_db
 from app.jobs import job_manager, sse_stream
 from app.pipeline import run_audit
+from app.report_view import build_report_context
 
 templates = Jinja2Templates(directory="app/templates")
 
-# 認証を要求しないパス（/healthz はヘルスチェック、/auth/* はログインフロー自体、/static/* は静的アセット）
-PUBLIC_PATHS = {"/healthz"}
+# 認証を要求しないパス（/healthz はヘルスチェック、/auth/* はログインフロー自体、/static/* は静的アセット、
+# /internal/backup は Cloud Scheduler からの呼び出し用でセッションCookieを持たないため、
+# エンドポイント自体で共有シークレットヘッダーを検証する）
+PUBLIC_PATHS = {"/healthz", "/internal/backup"}
 PUBLIC_PREFIXES = ("/auth/", "/static/")
 
 ALLOWED_DEVICES = {"desktop", "mobile"}
@@ -185,3 +190,154 @@ async def get_audit(audit_id: str, user=CurrentUserDep):
         "devices": json.loads(row["devices"]),
         "result": json.loads(row["result"]) if row["result"] else None,
     }
+
+
+def _load_finished_audit(audit_id: str) -> dict:
+    row = db.get_audit(audit_id)
+    if row is None or row["status"] != "done" or not row["result"]:
+        raise HTTPException(status_code=404, detail="診断結果が見つかりません")
+    return {
+        "id": row["id"],
+        "url": row["url"],
+        "domain": row["domain"],
+        "created_by": row["created_by"],
+        "created_at": row["created_at"],
+        "finished_at": row["finished_at"],
+        "status": row["status"],
+        "devices": json.loads(row["devices"]),
+        "result": json.loads(row["result"]),
+    }
+
+
+@app.get("/report/{audit_id}")
+async def report(audit_id: str, request: Request, user=CurrentUserDep):
+    audit_row = _load_finished_audit(audit_id)
+    is_pdf = request.query_params.get("pdf") == "1"
+    context = build_report_context(audit_row, audit_row["result"], settings.base_url, is_pdf=is_pdf)
+    return templates.TemplateResponse("report.html", {"request": request, **context})
+
+
+@app.get("/report/{audit_id}.pdf")
+async def report_pdf(audit_id: str, request: Request, user=CurrentUserDep):
+    from playwright.async_api import async_playwright
+
+    audit_row = _load_finished_audit(audit_id)
+
+    session_cookie = request.cookies.get(SESSION_COOKIE)
+    report_url = f"{settings.base_url}/report/{audit_id}?pdf=1"
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch()
+        try:
+            page = await browser.new_page()
+            if session_cookie:
+                cookie_url = settings.base_url
+                await page.context.add_cookies([{
+                    "name": SESSION_COOKIE,
+                    "value": session_cookie,
+                    "url": cookie_url,
+                }])
+            await page.goto(report_url, wait_until="networkidle", timeout=30000)
+            pdf_bytes = await page.pdf(format="A4", print_background=True)
+        finally:
+            await browser.close()
+
+    filename = f"{audit_row['domain']}_seo_llmo_report.pdf"
+    return StreamingResponse(
+        iter([pdf_bytes]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/history")
+async def api_history(user=CurrentUserDep):
+    rows = db.list_audits()
+    return {
+        "audits": [
+            {
+                "id": row["id"],
+                "domain": row["domain"],
+                "created_by": row["created_by"],
+                "created_at": row["created_at"],
+                "status": row["status"],
+                "score": (json.loads(row["result"])["score"]["total_score"] if row["result"] else None),
+            }
+            for row in rows
+        ]
+    }
+
+
+@app.get("/history")
+async def history_page(request: Request, user=CurrentUserDep):
+    return templates.TemplateResponse("history.html", {"request": request, "user_name": user.name})
+
+
+class ExcludedDomainRequest(BaseModel):
+    domain: str
+    reason: str | None = None
+
+
+@app.get("/api/excluded-domains")
+async def api_list_excluded_domains(user=CurrentUserDep):
+    rows = db.list_excluded_domains()
+    return {
+        "domains": [
+            {"domain": row["domain"], "reason": row["reason"], "created_by": row["created_by"], "created_at": row["created_at"]}
+            for row in rows
+        ]
+    }
+
+
+@app.post("/api/excluded-domains")
+async def api_add_excluded_domain(payload: ExcludedDomainRequest, user=CurrentUserDep):
+    domain = payload.domain.strip().lower()
+    if not domain:
+        raise HTTPException(status_code=400, detail="ドメインを入力してください")
+    db.add_excluded_domain(domain, payload.reason, user.email)
+    return {"ok": True}
+
+
+@app.delete("/api/excluded-domains/{domain}")
+async def api_remove_excluded_domain(domain: str, user=CurrentUserDep):
+    db.remove_excluded_domain(domain)
+    return {"ok": True}
+
+
+@app.get("/admin/excluded-domains")
+async def excluded_domains_page(request: Request, user=CurrentUserDep):
+    return templates.TemplateResponse("excluded_domains.html", {"request": request, "user_name": user.name})
+
+
+@app.get("/api/serp-account")
+async def api_serp_account(user=CurrentUserDep):
+    from app.clients import serp
+
+    info = await serp.get_account_info()
+    if info is None:
+        return {"available": False}
+    return {"available": True, **info}
+
+
+@app.post("/internal/backup")
+async def internal_backup(request: Request):
+    """Cloud Scheduler から日次で呼ばれ、SQLiteをCloud Storageへバックアップする。
+
+    セッションCookie認証の対象外パスのため、共有シークレットヘッダーで検証する
+    （docs/deployment.md 4章）。
+    """
+    if not settings.backup_secret:
+        raise HTTPException(status_code=503, detail="バックアップ機能が設定されていません")
+
+    provided = request.headers.get("X-Backup-Secret", "")
+    if not secrets.compare_digest(provided, settings.backup_secret):
+        raise HTTPException(status_code=401, detail="認証に失敗しました")
+
+    from app.backup import BackupError, run_backup
+
+    try:
+        destination = run_backup()
+    except BackupError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    return {"ok": True, "destination": destination}

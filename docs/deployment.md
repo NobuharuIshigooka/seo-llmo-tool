@@ -55,6 +55,12 @@ uvicorn app.main:app --reload
 
 OAuth のリダイレクトURIに `http://localhost:8000/auth/callback` を登録しておくこと。
 
+**PDFダウンロード（`/report/{id}.pdf`）はローカル開発では動作しない場合がある。** セッションクッキーは
+`secure=True` で発行されるため、Playwright が内部的に `/report/{id}?pdf=1` を自己参照する際、
+`BASE_URL` が `http://localhost:8000` のような非HTTPSだとクッキーが送信されずログイン画面にリダイレクトされる。
+本番（Cloud Run・HTTPS）では問題なく動作する。ローカルで確認する場合は `BASE_URL` を一時的にHTTPSの
+リバースプロキシ経由にするか、本番環境で確認すること。
+
 ## 3. Cloud Run
 
 ### 設定値
@@ -74,6 +80,15 @@ OAuth のリダイレクトURIに `http://localhost:8000/auth/callback` を登�
 
 Playwright の公式イメージをベースにするか、`mcr.microsoft.com/playwright/python` を使う。Chromium の依存ライブラリを自前で揃えない。
 
+`Dockerfile` は `mcr.microsoft.com/playwright/python:v1.48.0-jammy` をベースに作成済み（`requirements.txt` の
+Playwright バージョンに合わせて選定。バージョンを上げる際はタグも合わせて更新すること）。
+
+**ローカルMacがIntel・macOS 12.7.6（Monterey）の場合、`docker build` によるローカルビルド確認ができない。**
+Docker Desktop の最新版は macOS Sonoma（14）以降が必須で導入不可。代替の Colima も依存の `qemu` が
+ソースビルドを要求し、macOS 12 上での Python venv 作成に失敗する（Homebrew 側が「Tier 1構成外でサポート対象外」と
+明言している既知の制約）。この場合はローカルDockerを諦め、`gcloud builds submit --tag gcr.io/{PROJECT_ID}/seo-llmo-tool`
+で Cloud Build 上でのビルド確認に切り替える（`gcloud` CLI が必要。`brew install --cask google-cloud-sdk` で導入可能）。
+
 ### シークレット
 
 APIキー類は Secret Manager に格納し、環境変数として注入する。イメージに焼き込まない。
@@ -83,6 +98,23 @@ APIキー類は Secret Manager に格納し、環境変数として注入する�
 Cloud Run のファイルシステムは揮発性のため、SQLite をそのまま置くと再デプロイで消える。
 
 **対応方針**：日次で Cloud Storage にバックアップする。診断履歴が失われても業務は止まらないため、v1ではこれで足りる。履歴が業務上重要になった時点で Cloud SQL に移行する。
+
+**実装**：Cloud Run は単体では定期実行できないため、`POST /internal/backup`（`app/main.py`・`app/backup.py`）を
+Cloud Scheduler から日次で叩く方式とする。
+
+- 認証は共有シークレットヘッダー（`X-Backup-Secret`）。値は環境変数 `BACKUP_SECRET` に設定し、
+  Cloud Scheduler のジョブ設定側にも同じ値をヘッダーとして持たせる（セッションCookie認証とは別系統）
+- バックアップ先バケットは環境変数 `BACKUP_GCS_BUCKET`
+- SQLite は起動中のプロセスが書き込み中でも安全に取得できるよう、ファイルコピーではなく
+  `sqlite3.Connection.backup()`（Online Backup API）でスナップショットを取ってからアップロードする
+- 保存先パス：`gs://{BACKUP_GCS_BUCKET}/audit-db-backups/{YYYY-MM-DD}/audit.db`（JST基準の日付）
+
+**Cloud Scheduler 側の設定（GCP作業）**：
+
+1. Cloud Storage バケットを作成し、Cloud Run サービスアカウントに書き込み権限を付与
+2. `BACKUP_SECRET` にランダムな文字列を生成して Secret Manager に格納、環境変数として注入
+3. Cloud Scheduler ジョブを作成：頻度 `0 3 * * *`（JST日次）、ターゲットURL `{BASE_URL}/internal/backup`、
+   HTTPメソッド POST、ヘッダー `X-Backup-Secret: {BACKUP_SECRETの値}`
 
 ## 5. 運用時の確認事項
 

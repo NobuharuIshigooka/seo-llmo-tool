@@ -251,12 +251,21 @@ def _title_heading_score(page: CrawlResult) -> tuple[float, str]:
     return score, "、".join(evidences)
 
 
-def _eeat_score(page: CrawlResult) -> tuple[float, str]:
+def detect_eeat(page: CrawlResult) -> list[str]:
+    """E-E-A-T要素の検出（運営者情報／著者情報／連絡先／実績表記／資格・許認可）。
+
+    配点（score_content_seo）と競合比較（pipeline.py）の両方から参照するため、
+    検出ロジックのみここに切り出す。配点自体はこのファイル内に閉じる。
+    """
     haystack = f"{page.body_text} {page.title}".lower()
-    detected = [
+    return [
         label for label, patterns in EEAT_PATTERNS.items()
         if any(re.search(p, haystack, flags=re.IGNORECASE) for p in patterns)
     ]
+
+
+def _eeat_score(page: CrawlResult) -> tuple[float, str]:
+    detected = detect_eeat(page)
     score = _ratio_score(len(detected), EEAT_FULL_COUNT, CONTENT_EEAT_POINTS)
     evidence = f"検出: {', '.join(detected)}" if detected else "該当要素なし"
     return score, evidence
@@ -287,8 +296,12 @@ def score_content_seo(page: CrawlResult, keywords: list[str]) -> CategoryScore:
 # ---------------------------------------------------------------------------
 
 
-def _is_qa_heading(heading: str) -> bool:
+def is_qa_heading(heading: str) -> bool:
     return any(kw in heading for kw in QA_HEADING_KEYWORDS)
+
+
+def has_faq_schema(page: CrawlResult) -> bool:
+    return bool(FAQ_JSON_LD_TYPES & set(page.json_ld_types))
 
 
 def _ai_overview_score(serp_results: list[SerpResult]) -> tuple[float, str]:
@@ -305,13 +318,13 @@ def _ai_overview_score(serp_results: list[SerpResult]) -> tuple[float, str]:
 def score_llmo(page: CrawlResult, serp_results: list[SerpResult]) -> CategoryScore:
     items: list[ScoreItem] = []
 
-    faq_score = LLMO_FAQ_POINTS if FAQ_JSON_LD_TYPES & set(page.json_ld_types) else 0.0
+    faq_score = LLMO_FAQ_POINTS if has_faq_schema(page) else 0.0
     items.append(ScoreItem(
         "FAQ / QA構造化データ", faq_score, LLMO_FAQ_POINTS,
         f"JSON-LD種別: {', '.join(page.json_ld_types)}" if page.json_ld_types else "JSON-LD なし",
     ))
 
-    qa_headings = [h for h in (page.h1_list + page.h2_list) if _is_qa_heading(h)]
+    qa_headings = [h for h in (page.h1_list + page.h2_list) if is_qa_heading(h)]
     qa_score = min(len(qa_headings) * LLMO_QA_HEADING_POINTS_PER, LLMO_QA_HEADING_POINTS)
     items.append(ScoreItem("Q&A形式の見出し", qa_score, LLMO_QA_HEADING_POINTS, f"Q&A形式見出し {len(qa_headings)}個"))
 

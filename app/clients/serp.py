@@ -105,6 +105,36 @@ def get_provider() -> SerpProvider:
     raise SerpError(f"未対応の SERP_PROVIDER です: {settings.serp_provider}")
 
 
+ACCOUNT_CACHE_TTL = 3600  # 残枠は頻繁に変わらないため1時間キャッシュ（管理画面表示用、従量課金の温存）
+
+
+async def get_account_info() -> dict | None:
+    """SerpApi の残枠情報（管理画面表示用）。取得失敗時は None。"""
+    cache_key = "serp:account"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
+            resp = await client.get(
+                "https://serpapi.com/account.json", params={"api_key": settings.serpapi_key}
+            )
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception:
+        return None
+
+    info = {
+        "plan_searches_left": data.get("plan_searches_left"),
+        "searches_per_month": data.get("searches_per_month"),
+        "this_month_usage": data.get("this_month_usage"),
+        "account_email": data.get("account_email"),
+    }
+    cache.set(cache_key, info, ttl_seconds=ACCOUNT_CACHE_TTL)
+    return info
+
+
 async def search_all(keywords: list[str], own_domain: str, devices: list[str]) -> list[SerpResult]:
     """複数キーワード×デバイスを並行取得する。個々の失敗は握りつぶし、成功分のみ返す。"""
     provider = get_provider()

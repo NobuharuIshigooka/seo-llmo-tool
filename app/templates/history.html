@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block title %}診断履歴 - SEO/LLMO診断ツール{% endblock %}
+
+{% block body %}
+<header class="app-header">
+  <div class="container">
+    <p class="app-title">SEO/LLMO診断ツール</p>
+    <nav class="app-nav">
+      <a href="/">診断入力に戻る</a>
+      <a href="/auth/logout" style="margin-left:16px;">ログアウト（{{ user_name }}）</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="container" style="margin-top:32px;">
+    <div class="card">
+      <p class="section-title">診断履歴</p>
+      <div class="table-scroll">
+        <table class="data-table" id="history-table">
+          <thead>
+            <tr><th>ドメイン</th><th>スコア</th><th>実行者</th><th>実行日時</th><th>状態</th><th></th></tr>
+          </thead>
+          <tbody id="history-table-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  async function loadHistory() {
+    const resp = await fetch("/api/history");
+    const data = await resp.json();
+    const body = document.getElementById("history-table-body");
+    body.innerHTML = "";
+
+    const statusLabel = { done: "完了", running: "実行中", error: "エラー" };
+
+    for (const audit of data.audits) {
+      const tr = document.createElement("tr");
+      const date = new Date(audit.created_at.replace(" ", "T") + "Z").toLocaleString("ja-JP");
+      const link = audit.status === "done" ? `<a href="/report/${audit.id}">結果を見る</a>` : "-";
+      tr.innerHTML = `
+        <td>${escapeHtml(audit.domain)}</td>
+        <td>${audit.score !== null ? audit.score : "-"}</td>
+        <td>${escapeHtml(audit.created_by)}</td>
+        <td>${date}</td>
+        <td>${statusLabel[audit.status] || audit.status}</td>
+        <td>${link}</td>
+      `;
+      body.appendChild(tr);
+    }
+  }
+
+  function escapeHtml(value) {
+    const div = document.createElement("div");
+    div.textContent = String(value ?? "");
+    return div.innerHTML;
+  }
+
+  loadHistory();
+</script>
+{% endblock %}

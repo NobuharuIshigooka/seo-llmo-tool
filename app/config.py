@@ -48,5 +48,9 @@ class Settings:
     base_url: str = os.getenv("BASE_URL", "http://localhost:8000")
     db_path: str = os.getenv("DB_PATH", "data/audit.db")
 
+    # バックアップ（docs/deployment.md 4章）
+    backup_secret: str = os.getenv("BACKUP_SECRET", "")
+    backup_gcs_bucket: str = os.getenv("BACKUP_GCS_BUCKET", "")
+
 
 settings = Settings()

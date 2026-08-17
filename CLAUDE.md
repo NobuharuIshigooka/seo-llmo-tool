@@ -89,8 +89,8 @@ GitHub: https://github.com/NobuharuIshigooka/seo-llmo-tool.git（main ブラン�
 - [x] 工程1 基盤（FastAPI・Google OAuth・DB・ジョブ管理・SSE）
 - [x] 工程2 診断エンジン（クロール・SerpApi・PSI・DataForSEO・Claude）※`app/pipeline.py` まで完了。実行順は `serp/psi 並行 → competitors → backlinks`（`docs/architecture.md`参照、当初案から変更）
 - [x] 工程3 スコアリング（工程2に先行して実施。`app/scoring.py`）
-- [x] 工程4 結果画面（診断入力・進捗レール・診断結果・キーワード手動編集→再診断）
-- [ ] 工程5 共有URL・PDF出力・履歴・除外ドメイン管理
+- [x] 工程4 結果画面（診断入力・進捗レール・診断結果・キーワード手動編集→再診断・競合比較詳細指標）
+- [x] 工程5 共有URL・PDF出力・履歴・除外ドメイン管理
 - [ ] 工程6 Cloud Run デプロイ・実サイト検証・閾値調整
 
 ## やらないこと

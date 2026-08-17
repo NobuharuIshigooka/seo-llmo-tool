@@ -474,6 +474,10 @@ button:focus-visible {
   font-size: 14px;
 }
 
+.table-scroll {
+  overflow-x: auto;
+}
+
 table.data-table {
   width: 100%;
   border-collapse: collapse;

@@ -7,7 +7,9 @@
   <div class="container">
     <p class="app-title">SEO/LLMO診断ツール</p>
     <nav class="app-nav">
-      <a href="/auth/logout">ログアウト（{{ user_name }}）</a>
+      <a href="/history">診断履歴</a>
+      <a href="/admin/excluded-domains" style="margin-left:16px;">除外ドメイン管理</a>
+      <a href="/auth/logout" style="margin-left:16px;">ログアウト（{{ user_name }}）</a>
     </nav>
   </div>
 </header>
@@ -60,6 +62,11 @@
     </div>
 
     <div class="container">
+      <div class="result-actions">
+        <button type="button" class="btn-secondary" id="copy-share-url-btn">共有URLをコピー</button>
+        <a class="btn-secondary" id="pdf-download-link" href="#" target="_blank" rel="noopener">PDFダウンロード</a>
+      </div>
+
       <div id="warning-banner-wrap"></div>
 
       <div class="top-row">
@@ -113,11 +120,18 @@
 
       <div class="card hidden" id="competitors-card">
         <p class="section-title">競合3社との比較</p>
-        <table class="data-table" id="competitors-table">
-          <thead><tr id="competitors-table-head"></tr></thead>
-          <tbody id="competitors-table-body"></tbody>
-        </table>
+        <div class="table-scroll">
+          <table class="data-table" id="competitors-table">
+            <thead><tr id="competitors-table-head"></tr></thead>
+            <tbody id="competitors-table-body"></tbody>
+          </table>
+        </div>
         <p class="section-note" id="competitors-explanation"></p>
+      </div>
+
+      <div class="result-actions">
+        <button type="button" class="btn-secondary" id="copy-share-url-btn-bottom">共有URLをコピー</button>
+        <a class="btn-secondary" id="pdf-download-link-bottom" href="#" target="_blank" rel="noopener">PDFダウンロード</a>
       </div>
     </div>
   </section>

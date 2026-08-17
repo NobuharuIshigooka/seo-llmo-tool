@@ -71,8 +71,14 @@ async def test_run_audit_emits_error_and_stops_on_crawl_failure():
 async def test_run_audit_completes_with_partial_failures_and_warnings():
     job = Job(id="job2", created_by="user@example.co.jp")
     page = _page()
+    competitor_page = _page()
 
-    with patch.object(pipeline, "crawl_fetch", new=AsyncMock(return_value=page)), \
+    async def fake_crawl(url):
+        if url == "https://example.co.jp/":
+            return page
+        return competitor_page
+
+    with patch.object(pipeline, "crawl_fetch", new=AsyncMock(side_effect=fake_crawl)), \
          patch.object(pipeline.llm, "extract_keywords", new=AsyncMock(return_value=["キーワード1"])), \
          patch.object(pipeline.serp, "search_all", new=AsyncMock(return_value=[
              SerpResult(keyword="キーワード1", device="desktop", rank=2, organic_domains=["a.co.jp", "example.co.jp"]),
@@ -83,7 +89,8 @@ async def test_run_audit_completes_with_partial_failures_and_warnings():
              "https://example.co.jp/": BacklinksResult(domain="example.co.jp", referring_domains=20, rank=25),
              "a.co.jp": None,
          })), \
-         patch.object(pipeline.llm, "sales_summary", new=AsyncMock(return_value="要約文です。")):
+         patch.object(pipeline.llm, "sales_summary", new=AsyncMock(return_value="要約文です。")), \
+         patch.object(pipeline.llm, "explain_competitors", new=AsyncMock(return_value="解説文です。")):
         await pipeline.run_audit(job, "https://example.co.jp/", ["desktop"])
 
     assert job.status == "done"
@@ -100,6 +107,9 @@ async def test_run_audit_completes_with_partial_failures_and_warnings():
         {"keyword": "キーワード1", "device": "desktop", "rank": 2, "ai_overview_shown": False, "ai_overview_cited": False}
     ]
     assert result["competitor_backlinks"] == {"a.co.jp": None}
+    assert set(result["competitor_comparison"].keys()) == {"example.co.jp", "a.co.jp"}
+    assert result["competitor_comparison"]["a.co.jp"]["referring_domains"] is None
+    assert result["competitor_explanation"] == "解説文です。"
 
 
 async def test_run_audit_continues_when_serp_fails_entirely():

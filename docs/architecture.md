@@ -105,11 +105,16 @@
 | POST | `/api/audits` | 診断開始（url, devices）→ job_id |
 | GET | `/api/audits/{id}/events` | SSE 進捗配信 |
 | GET | `/api/audits/{id}` | 結果JSON |
-| GET | `/api/history` | 診断履歴一覧 |
-| GET | `/report/{id}` | 共有レポート（閲覧専用） |
+| GET | `/api/history` | 診断履歴一覧（JSON） |
+| GET | `/history` | 診断履歴一覧画面 |
+| GET | `/report/{id}` | 共有レポート（閲覧専用。`?pdf=1`はPDF生成時の内部自己参照用） |
 | GET | `/report/{id}.pdf` | PDF ダウンロード |
-| GET | `/admin/excluded-domains` | 競合除外ドメイン管理 |
+| GET | `/admin/excluded-domains` | 競合除外ドメイン管理画面 |
+| GET/POST | `/api/excluded-domains` | 除外ドメイン一覧取得・追加 |
+| DELETE | `/api/excluded-domains/{domain}` | 除外ドメイン削除 |
+| GET | `/api/serp-account` | SerpApi 残枠情報（管理画面表示用） |
 | GET | `/healthz` | ヘルスチェック（認証不要） |
+| POST | `/internal/backup` | SQLite→Cloud Storage 日次バックアップ（Cloud Schedulerから共有シークレット認証で呼び出し） |
 
 `/healthz` 以外はすべて認証必須。
 

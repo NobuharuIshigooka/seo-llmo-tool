@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.example
+data/
+.DS_Store
+.claude/
+概要/
+.git/
+tests/
+docs/
+*.md

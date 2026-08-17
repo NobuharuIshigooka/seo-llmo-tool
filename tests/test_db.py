@@ -74,3 +74,50 @@ def test_count_audits_today_boundary_just_before_jst_midnight(isolated_db):
     # 翌日側から見ると含まれない
     next_day_now = datetime(2026, 8, 6, 16, 0, 0, tzinfo=timezone.utc)  # 2026-08-07 01:00 JST
     assert db.count_audits_today("user@example.co.jp", now=next_day_now) == 0
+
+
+def test_add_and_list_excluded_domains(isolated_db):
+    db.add_excluded_domain("example.com", "ポータル", "user@example.co.jp")
+    db.add_excluded_domain("other.com", None, "user@example.co.jp")
+
+    domains = db.list_excluded_domains()
+    assert {row["domain"] for row in domains} == {"example.com", "other.com"}
+    assert db.get_excluded_domains() == {"example.com", "other.com"}
+
+
+def test_add_excluded_domain_updates_reason_on_conflict(isolated_db):
+    db.add_excluded_domain("example.com", "旧理由", "user@example.co.jp")
+    db.add_excluded_domain("example.com", "新理由", "user@example.co.jp")
+
+    domains = db.list_excluded_domains()
+    assert len(domains) == 1
+    assert domains[0]["reason"] == "新理由"
+
+
+def test_remove_excluded_domain(isolated_db):
+    db.add_excluded_domain("example.com", "ポータル", "user@example.co.jp")
+    db.remove_excluded_domain("example.com")
+
+    assert db.get_excluded_domains() == set()
+
+
+def test_list_audits_orders_newest_first(isolated_db):
+    now = datetime(2026, 8, 6, 15, 30, tzinfo=timezone.utc)
+    _insert_audit("a1", "user@example.co.jp", now)
+    _insert_audit("a2", "user@example.co.jp", now + timedelta(minutes=5))
+
+    rows = db.list_audits()
+    assert [row["id"] for row in rows] == ["a2", "a1"]
+
+
+def test_get_audit_returns_none_when_missing(isolated_db):
+    assert db.get_audit("does-not-exist") is None
+
+
+def test_get_audit_returns_row(isolated_db):
+    now = datetime(2026, 8, 6, 15, 30, tzinfo=timezone.utc)
+    _insert_audit("a1", "user@example.co.jp", now)
+
+    row = db.get_audit("a1")
+    assert row["id"] == "a1"
+    assert row["domain"] == "example.co.jp"
