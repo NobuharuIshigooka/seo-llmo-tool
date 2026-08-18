@@ -91,7 +91,41 @@ Docker Desktop の最新版は macOS Sonoma（14）以降が必須で導入不�
 
 ### シークレット
 
-APIキー類は Secret Manager に格納し、環境変数として注入する。イメージに焼き込まない。
+APIキー類は Secret Manager に格納し、環境変数として注入する（`--set-secrets`）。イメージに焼き込まない。
+
+**Cloud Run のデフォルトサービスアカウント（`{PROJECT_NUMBER}-compute@developer.gserviceaccount.com`）には
+Secret Manager への参照権限が自動付与されない。** `roles/secretmanager.secretAccessor` を
+プロジェクトレベルで明示的に付与しておくこと（未付与のまま `--set-secrets` を使うと
+デプロイが `Permission denied` で失敗する）：
+
+```bash
+gcloud projects add-iam-policy-binding {PROJECT_ID} \
+  --member="serviceAccount:{PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor"
+```
+
+### 実績（seo-llmo-tool プロジェクト）
+
+2026-08-18 時点でデプロイ確認済み。
+
+| 項目 | 値 |
+|---|---|
+| GCPプロジェクトID | `seo-llmo-tool`（組織 `miraiagogo.cloud` 配下） |
+| リージョン | `asia-northeast1`（東京） |
+| Service URL | `https://seo-llmo-tool-864337619528.asia-northeast1.run.app` |
+| OAuthリダイレクトURI | `{Service URL}/auth/callback` を登録済み |
+
+**認証の未設定に注意**：`ALLOWED_HD` / `ALLOWED_EMAILS` は本番Cloud Runサービスに未設定。
+`app/auth.py` の `_is_allowed()` は両方空の場合 `False` を返すため、未設定の間は誰もログインできない
+（安全側のデフォルト）。運用開始前に必ずどちらかを設定すること：
+
+```bash
+gcloud run services update seo-llmo-tool --region=asia-northeast1 --project=seo-llmo-tool \
+  --update-env-vars="ALLOWED_EMAILS=user1@example.com,user2@example.com"
+# または社内ドメイン一括許可
+gcloud run services update seo-llmo-tool --region=asia-northeast1 --project=seo-llmo-tool \
+  --update-env-vars="ALLOWED_HD=example.co.jp"
+```
 
 ## 4. データの永続化
 

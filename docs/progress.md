@@ -184,11 +184,59 @@ CLAUDE.md の実装状況チェックリスト（工程1〜6）を作業単位�
     Docker Desktop最新版（Sonoma以降必須）が導入不可。代替のColimaも依存の`qemu`がソースビルドを要求し、
     macOS 12上でPython 3.14のvenv作成に失敗（Homebrew側が「Tier 1構成外でサポート対象外」と明言する既知の制約）。
     ローカルDockerインストールは諦め、`gcloud builds submit` によるクラウドビルド確認に方針転換（ユーザー承認）
-  - `gcloud` CLI のインストールは完了（`brew install --cask google-cloud-sdk`）。**次回はここから再開**：
-    `gcloud auth login` → GCPプロジェクトの確認/作成 → `gcloud builds submit --tag gcr.io/{PROJECT_ID}/seo-llmo-tool`
-    でのビルド確認 → 通れば Secret Manager・GCSバケット・Cloud Run・Cloud Scheduler の順にセットアップ
-- [ ] Secret Manager にAPIキー類を格納し環境変数として注入 — **GCPプロジェクトでの作業（ユーザー）**
-- [ ] Cloud Run 設定：min-instances=1 / max-instances=1 / CPU2 / メモリ2GB / タイムアウト300秒 / 同時実行数20 — **GCPプロジェクトでの作業（ユーザー）**
+  - `gcloud` CLI のインストールは完了（`brew install --cask google-cloud-sdk`）
+  - 2026-08-18：`gcloud auth login`（`dec.4th.1978@gmail.com`）・GCPプロジェクト作成（`seo-llmo-tool`、
+    請求先アカウント `miraiagogo.cloud - Topgate` をリンク）・`cloudbuild.googleapis.com` /
+    `containerregistry.googleapis.com` / `run.googleapis.com` を有効化済み
+  - 2026-08-18：作成時は組織なしで作られてしまったため、`gcloud beta projects move seo-llmo-tool
+    --organization=800471672671` で `miraiagogo.cloud` 組織配下に移動済み（Cloud Console上でも
+    `miraiagogo.cloud` の下に表示されることを確認）
+    - 備考：`gcloud auth login` はこの環境（Safariが既定ブラウザ、非対話シェル）だと `--no-launch-browser` +
+      `expect` での手動コード受け渡しが必要だった（通常はブラウザが自動で開き完結する）
+    - 備考：プロジェクト作成・API有効化の直後は権限伝播に数分かかり、`gcloud builds submit` が
+      一時的に `PERMISSION_DENIED` になった（約90秒待って再実行したら解消）
+  - 2026-08-18：`gcloud builds submit --tag gcr.io/seo-llmo-tool/seo-llmo-tool --project=seo-llmo-tool` で
+    Cloud Build 経由のビルド確認 **成功**（`SUCCESS`、所要3分6秒）。イメージ
+    `gcr.io/seo-llmo-tool/seo-llmo-tool:latest` を Container Registry にプッシュ済み。
+    Secret Manager へのAPIキー格納も完了（下記参照）。
+    **次回はここから再開**：Cloud Run サービス作成
+    （min=1/max=1/CPU2/メモリ2GB/タイムアウト300秒/同時実行数20、シークレットを`--set-secrets`で注入）
+    → GCSバケット・Cloud Scheduler の順にセットアップ
+- [x] Secret Manager にAPIキー類を格納し環境変数として注入（2026-08-18）
+  - [x] `secretmanager.googleapis.com` を有効化、9件のシークレットの箱を作成済み（2026-08-18）：
+    `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `SESSION_SECRET` / `SERPAPI_KEY` /
+    `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD` / `ANTHROPIC_API_KEY` / `PSI_API_KEY` / `BACKUP_SECRET`
+  - [x] 各シークレットへの実際の値の投入完了（2026-08-18、ユーザー作業）：
+    `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `SESSION_SECRET`（自動生成分を投入） / `SERPAPI_KEY` /
+    `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD` / `ANTHROPIC_API_KEY` / `PSI_API_KEY` /
+    `BACKUP_SECRET`（自動生成分を投入） の9件、全てバージョン登録済みを確認
+    - `pagespeedonline.googleapis.com` の有効化はこちらで実施済み
+    - DataForSEOは当初「今回使わない」と一度検討したが、被リンく評価（権威性カテゴリ15点）は
+      診断対象サイト側の許可なしで使える代替APIがなく、他社（Ahrefs/Moz等）も同様に別契約が
+      必要なため、DataForSEOを継続利用する方針で確定（ユーザー判断、2026-08-18）
+  - [x] Cloud Run サービス作成時にこれらのシークレットを環境変数として注入する設定（`--set-secrets`）済み
+- [x] Cloud Run 設定：min-instances=1 / max-instances=1 / CPU2 / メモリ2GB / タイムアウト300秒 / 同時実行数20（2026-08-18）
+  - `gcloud run deploy seo-llmo-tool --region=asia-northeast1 --allow-unauthenticated --set-secrets=...` でデプロイ成功
+  - Service URL: `https://seo-llmo-tool-864337619528.asia-northeast1.run.app`
+  - 初回デプロイは Secret Manager への `Permission denied` で失敗。Cloud Run のデフォルトサービスアカウント
+    （`864337619528-compute@developer.gserviceaccount.com`）に `roles/secretmanager.secretAccessor` を
+    プロジェクトレベルで付与してから再実行し成功した（デフォルトSAには自動付与されない）
+  - [x] `BASE_URL` 環境変数を設定して再デプロイ済み（2026-08-18）
+  - [x] Google OAuthクライアントの「承認済みのリダイレクトURI」に
+    `https://seo-llmo-tool-864337619528.asia-northeast1.run.app/auth/callback` を追加済み（ユーザー作業）
+  - [ ] `ALLOWED_HD` / `ALLOWED_EMAILS` は現時点で未設定（ユーザー判断により後日登録）。
+    `app/auth.py` の `_is_allowed()` は両方空の場合 `False` を返す実装のため、
+    未設定でも「誰でもログイン可能」にはならず安全側（＝現状は誰もログインできない）。
+    許可対象が決まったら以下で追加：
+    ```
+    gcloud run services update seo-llmo-tool --region=asia-northeast1 --project=seo-llmo-tool \
+      --update-env-vars="ALLOWED_EMAILS=user1@example.com,user2@example.com"
+    # または
+    gcloud run services update seo-llmo-tool --region=asia-northeast1 --project=seo-llmo-tool \
+      --update-env-vars="ALLOWED_HD=example.co.jp"
+    ```
+  - [ ] **次回はここから再開**：`ALLOWED_EMAILS`（または`ALLOWED_HD`）に許可対象を登録 →
+    ブラウザで実際にログイン・診断1件を実走確認
 - [x] Cloud Storage への SQLite 日次バックアップ（2026-08-17）
   - `POST /internal/backup`（`app/main.py`・`app/backup.py`）をCloud Schedulerから日次で呼ぶ方式で実装（ユーザー承認済み）
   - 認証は共有シークレットヘッダー `X-Backup-Secret`（環境変数 `BACKUP_SECRET`、ユーザー承認済み）。バケットは `BACKUP_GCS_BUCKET`
