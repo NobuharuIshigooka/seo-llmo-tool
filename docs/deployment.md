@@ -16,11 +16,12 @@
 
 ### 外部API
 
+2026-08-19：DataForSEO Backlinks連携を廃止したため`DATAFORSEO_LOGIN`/`DATAFORSEO_PASSWORD`は不要になった。
+
 | 変数 | 内容 |
 |---|---|
 | `SERP_PROVIDER` | `serpapi`（既定） |
 | `SERPAPI_KEY` | SerpApi のAPIキー |
-| `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD` | DataForSEO の認証情報 |
 | `ANTHROPIC_API_KEY` | Claude API キー |
 | `ANTHROPIC_MODEL` | 既定 `claude-sonnet-5` |
 | `PSI_API_KEY` | PageSpeed Insights APIキー |
@@ -36,7 +37,6 @@
 | `SERP_CACHE_TTL` | 86400 | SERPキャッシュ（秒） |
 | `CRAWL_CACHE_TTL` | 21600 | クロールキャッシュ |
 | `PSI_CACHE_TTL` | 43200 | PageSpeedキャッシュ |
-| `BACKLINK_CACHE_TTL` | 604800 | 被リンクキャッシュ |
 | `FETCH_AI_OVERVIEW_DETAIL` | false | AI Overview本文の追加取得（追加課金） |
 | `RESPECT_ROBOTS` | true | robots.txt の尊重 |
 | `USER_AGENT` | — | クロール時のUA（連絡先URLを含めること） |
@@ -115,23 +115,33 @@ gcloud projects add-iam-policy-binding {PROJECT_ID} \
 | Service URL | `https://seo-llmo-tool-864337619528.asia-northeast1.run.app` |
 | OAuthリダイレクトURI | `{Service URL}/auth/callback` を登録済み |
 
-**認証の未設定に注意**：`ALLOWED_HD` / `ALLOWED_EMAILS` は本番Cloud Runサービスに未設定。
-`app/auth.py` の `_is_allowed()` は両方空の場合 `False` を返すため、未設定の間は誰もログインできない
-（安全側のデフォルト）。運用開始前に必ずどちらかを設定すること：
+**認証方式**：`ALLOWED_HD`（ドメイン一括）ではなく `ALLOWED_EMAILS`（個別メール許可）を採用（2026-08-19、ユーザー判断）。
+社内10名を順次判明次第追加していく運用のため、`ALLOWED_HD` は使用しない。
+
+現在の登録状況は `docs/progress.md` 工程6を参照。メンバーを追加する場合は既存分を含めた
+フルリストを指定すること（差分追加ではなく上書きのため）：
 
 ```bash
 gcloud run services update seo-llmo-tool --region=asia-northeast1 --project=seo-llmo-tool \
-  --update-env-vars="ALLOWED_EMAILS=user1@example.com,user2@example.com"
-# または社内ドメイン一括許可
-gcloud run services update seo-llmo-tool --region=asia-northeast1 --project=seo-llmo-tool \
-  --update-env-vars="ALLOWED_HD=example.co.jp"
+  --update-env-vars="ALLOWED_EMAILS=user1@example.com,user2@example.com,user3@example.com"
 ```
+
+`app/auth.py` の `_is_allowed()` は `ALLOWED_HD` / `ALLOWED_EMAILS` が両方空の場合 `False` を返すため、
+未設定の間は誰もログインできない（安全側のデフォルト）。
 
 ## 4. データの永続化
 
 Cloud Run のファイルシステムは揮発性のため、SQLite をそのまま置くと再デプロイで消える。
 
 **対応方針**：日次で Cloud Storage にバックアップする。診断履歴が失われても業務は止まらないため、v1ではこれで足りる。履歴が業務上重要になった時点で Cloud SQL に移行する。
+
+**認証Cookieとの整合性（2026-08-19対応済み）**：SQLite が揮発する一方、ブラウザの署名付きセッションCookie
+（`app/auth.py` の `SESSION_COOKIE`）は有効期限（14日）内であれば残り続けるため、再デプロイ直後は
+「Cookieは有効だが `users` テーブルに該当ユーザー行がない」状態になりうる。この状態で `audits` 等へ
+書き込むと外部キー制約（`created_by REFERENCES users(email)`）に落ちる。`app/auth.py` の `require_auth()`
+がリクエストのたびに該当ユーザー行を `upsert` して存在を保証するため、通常はユーザー側の再ログインは
+不要（ジョブの進行状況はプロセス内メモリ保持のため、コンテナ再起動を挟むと診断ジョブ自体は消える点は
+別の制約として残る）。
 
 **実装**：Cloud Run は単体では定期実行できないため、`POST /internal/backup`（`app/main.py`・`app/backup.py`）を
 Cloud Scheduler から日次で叩く方式とする。
@@ -155,6 +165,5 @@ Cloud Scheduler から日次で叩く方式とする。
 | 項目 | 頻度 | 内容 |
 |---|---|---|
 | SerpApi 残枠 | 週次 | 枠切れは商談当日の停止に直結する。管理画面に残枠を表示すること |
-| DataForSEO 残高 | 月次 | 残高不足で被リンクが取得できなくなる |
 | スコア分布 | 運用開始後 | 診断10〜20件を確認し、閾値を調整（`docs/scoring.md` 参照） |
 | 競合除外ドメイン | 随時 | 業種によって邪魔なドメインが変わる |

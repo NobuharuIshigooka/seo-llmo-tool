@@ -82,9 +82,9 @@
           <span class="band-badge" id="band-badge"></span>
         </div>
 
-        <div class="card sales-summary">
-          <p class="section-title">営業トーク要約</p>
-          <p id="sales-summary-text"></p>
+        <div class="card improvement-advice">
+          <p class="section-title">改善アドバイス</p>
+          <p id="improvement-advice-text"></p>
         </div>
       </div>
 
@@ -139,5 +139,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/audit.js"></script>
+<script src="/static/js/audit.js?v={{ asset_version }}"></script>
 {% endblock %}

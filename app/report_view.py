@@ -16,7 +16,7 @@ BAND_LABELS = {"good": "良好", "fair": "標準", "weak": "要改善", "poor": 
 COMPARISON_METRIC_ORDER = [
     "char_count", "h2_count", "qa_heading_count", "has_faq_schema",
     "structured_data_type_count", "list_table_count", "internal_link_count",
-    "eeat_count", "referring_domains",
+    "eeat_count",
 ]
 
 
@@ -74,8 +74,7 @@ def build_comparison_rows(result: dict) -> tuple[list[dict], list[tuple[str, str
     if not comparison:
         return [], []
 
-    labels = {**COMPARISON_METRIC_LABELS, "referring_domains": "参照ドメイン数"}
-    metric_labels = [(key, labels.get(key, key)) for key in COMPARISON_METRIC_ORDER]
+    metric_labels = [(key, COMPARISON_METRIC_LABELS.get(key, key)) for key in COMPARISON_METRIC_ORDER]
 
     rows = []
     if own_domain in comparison:

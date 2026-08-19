@@ -7,7 +7,6 @@
     { stage: "serp", label: "検索順位とAI Overviewを取得中" },
     { stage: "psi", label: "表示速度を計測中" },
     { stage: "competitors", label: "競合サイトを分析中" },
-    { stage: "backlinks", label: "被リンクを調査中" },
     { stage: "score", label: "スコア算出・要約生成中" },
   ];
 
@@ -164,7 +163,7 @@
     renderTotalScore(result.score);
     renderCategoryScores(result.score.categories);
     renderImprovements(result.score.improvements);
-    renderSalesSummary(result.sales_summary);
+    renderImprovementAdvice(result.improvement_advice);
     renderKeywordEditor();
     renderSerpTable(result);
     renderCompetitors(result);
@@ -257,8 +256,8 @@
       .join("");
   }
 
-  function renderSalesSummary(text) {
-    document.getElementById("sales-summary-text").textContent = text;
+  function renderImprovementAdvice(text) {
+    document.getElementById("improvement-advice-text").textContent = text;
   }
 
   function renderKeywordEditor() {
@@ -329,7 +328,7 @@
   const COMPARISON_METRIC_ORDER = [
     "char_count", "h2_count", "qa_heading_count", "has_faq_schema",
     "structured_data_type_count", "list_table_count", "internal_link_count",
-    "eeat_count", "referring_domains",
+    "eeat_count",
   ];
 
   function formatMetricValue(key, value) {
@@ -351,7 +350,6 @@
     card.classList.remove("hidden");
 
     const labels = result.competitor_comparison_labels || {};
-    labels.referring_domains = labels.referring_domains || "参照ドメイン数";
 
     const head = document.getElementById("competitors-table-head");
     head.innerHTML = `<th>ドメイン</th>` + COMPARISON_METRIC_ORDER.map((k) => `<th>${escapeHtml(labels[k] || k)}</th>`).join("");

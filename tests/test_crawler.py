@@ -9,6 +9,7 @@ SAMPLE_HTML = """
 <head>
   <title>サンプルタイトル</title>
   <meta name="description" content="これはテスト用の説明文です。">
+  <meta name="keywords" content="キーワード1, キーワード2 ,キーワード3">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="canonical" href="https://example.co.jp/">
   <script type="application/ld+json">{"@type": "FAQPage"}</script>
@@ -20,6 +21,8 @@ SAMPLE_HTML = """
   <p>これは最初の段落です。</p>
   <ul><li>項目1</li></ul>
   <table><tr><td>表</td></tr></table>
+  <img src="/a.jpg" alt="施術風景の写真">
+  <img src="/b.jpg" alt="">
   <a href="/about">会社概要</a>
   <a href="https://example.co.jp/contact">お問い合わせ</a>
   <a href="https://other.co.jp/">外部サイト</a>
@@ -62,6 +65,9 @@ async def test_fetch_parses_html_via_playwright():
     assert result.list_table_count == 2
     assert result.first_paragraph == "これは最初の段落です。"
     assert result.internal_link_count == 2
+    assert result.meta_keywords == ["キーワード1", "キーワード2", "キーワード3"]
+    assert result.alt_texts == ["施術風景の写真"]
+    assert result.internal_link_texts == ["会社概要", "お問い合わせ"]
 
 
 async def test_fetch_falls_back_to_httpx_when_playwright_fails():

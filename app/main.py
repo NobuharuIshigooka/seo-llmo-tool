@@ -1,5 +1,6 @@
 import json
 import secrets
+import time
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
@@ -17,6 +18,9 @@ from app.pipeline import run_audit
 from app.report_view import build_report_context
 
 templates = Jinja2Templates(directory="app/templates")
+# 静的アセットのキャッシュバスティング用。コンテナ起動ごとに変わるため、
+# 再デプロイ後にブラウザが古い static/js・static/css をキャッシュから使い続ける事故を防ぐ。
+templates.env.globals["asset_version"] = str(int(time.time()))
 
 # 認証を要求しないパス（/healthz はヘルスチェック、/auth/* はログインフロー自体、/static/* は静的アセット、
 # /internal/backup は Cloud Scheduler からの呼び出し用でセッションCookieを持たないため、

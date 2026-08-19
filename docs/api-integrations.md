@@ -5,10 +5,11 @@
 | API | 用途 | 課金 |
 |---|---|---|
 | SerpApi | 検索順位・AI Overview | 月額サブスク |
-| DataForSEO Backlinks | 被リンク・ドメインランク | 従量（前払い残高） |
-| Claude API | キーワード推定・競合解説・営業トーク要約 | 従量 |
+| Claude API | キーワード推定・競合解説・改善アドバイス | 従量 |
 | Google PageSpeed Insights | 表示速度・Core Web Vitals | 無料（要APIキー） |
 | Google OAuth 2.0 | 認証 | 無料 |
+
+2026-08-19：DataForSEO Backlinks（被リンク・ドメインランク）連携を廃止した（ユーザー判断）。
 
 ---
 
@@ -49,35 +50,7 @@ DataForSEO SERP API（Liveモード）への切り替えを想定し、クライ
 
 ---
 
-## 2. DataForSEO Backlinks
-
-### 呼び出し
-
-`POST https://api.dataforseo.com/v3/backlinks/summary/live`
-Basic認証（`DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD`）。
-
-リクエストボディは**配列**で渡す形式。レスポンスは `tasks[0].result[0]` にネストする。
-
-### 対象と取得指標
-
-自社1件＋競合3社＝**4リクエスト／診断**。
-
-| 指標 | 用途 |
-|---|---|
-| `referring_domains` | **主指標**。スコア算出に使用 |
-| `rank` | ドメインランク。スコア算出に使用 |
-| `backlinks` | 参考表示のみ |
-| dofollow比率 | 参考表示のみ |
-
-被リンク総数（`backlinks`）を主指標にしない。同一サイトからの大量リンクで実力より大きく見えるため。
-
-### 未契約・失敗時
-
-権威性カテゴリを「未計測」とし、**総合スコアから除外して残り85点満点を100点に正規化**する。推定値で埋めない。
-
----
-
-## 3. Claude API
+## 2. Claude API
 
 ### 呼び出し
 
@@ -91,25 +64,44 @@ Basic認証（`DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD`）。
 |---|---|---|
 | `extract_keywords()` | 主要キーワードを8個推定（JSON配列で出力） | 0.0 |
 | `explain_competitors()` | 競合との数値差分を自然文化 | 0.3 |
-| `sales_summary()` | 営業トーク用の要約（4〜5文・300字以内） | 0.3 |
+| `improvement_advice()` | 顧客向けの改善アドバイス文（4〜5文・300字以内、2026-08-19：営業トーク要約から改称） | 0.3 |
 
 ### 絶対に守ること
 
 - **スコアの数値を生成させない。** 採点は `scoring.py` のルールベースのみ
 - プロンプトで「与えられた数値以外を書かない」「推測で数値を作らない」を明示する
 - 出力はプレーンテキスト（Markdown記法を使わせない）。画面にそのまま表示するため
-- `sales_summary()` では、短期改善できない被リンク施策を「最初に着手すべきこと」に挙げさせない
+- `improvement_advice()` は「〜という状態です」の現状説明ではなく「〜を改善しましょう」のように次の行動が分かるアドバイス文にする
 - JSON出力を期待する場合は、コードフェンスを除去してからパースする
 
 ### 失敗時
 
-- `extract_keywords()` → title・見出しからの簡易抽出にフォールバック
+- `extract_keywords()` → ルールベースの候補生成にフォールバック（下記参照）
 - `explain_competitors()` → 競合解説を非表示、警告に記録
-- `sales_summary()` → スコアと弱点項目から組み立てたテンプレート文にフォールバック
+- `improvement_advice()` → スコアと弱点項目から組み立てたテンプレート文にフォールバック
+
+### `extract_keywords()` のフォールバック（`_fallback_keywords()`、2026-08-19実装）
+
+Claude API呼び出しが失敗した場合、以下のルールベースでキーワード候補を生成する（`app/clients/llm.py`）。
+
+1. **主要情報源**（title / meta description / 見出しh1〜h3 / meta keywords）を「・」「、」「/」
+   「|」「()」「。」等の区切り文字・括弧で分割し、それぞれ個別の候補にする
+2. **本文**を形態素解析（`fugashi` + `unidic-lite`、MeCab互換）で解析し、名詞のみを抽出
+   （1文字名詞・「こと」「もの」等のストップワードは除外）して候補に加える
+3. **補助情報源**（画像のalt属性、内部リンクのアンカーテキスト）も同様に区切り文字で分割し、
+   候補に加える
+4. 全候補の出現回数を集計し、主要情報源からの候補には優先度ボーナス（`_PRIMARY_SOURCE_BONUS`）を
+   加算した上で、重複を除いてスコアが高い順に並べ、上位 `MAX_KEYWORDS` 件を返す
+   （主要情報源からの候補は、本文中でどれだけ頻出する語があっても基本的に優先される設計）
+
+Claude API本体（`extract_keywords()`のプロンプト）にも同じ情報源（meta keywords・alt属性・
+内部リンクテキストを含む）を渡し、タイトルや見出しに出てこない語でも本文で繰り返し使われて
+いれば候補に含めるよう指示している。ただし頻度カウント・優先度ソート自体はプロンプトでは
+制御しておらず、Claudeの判断に委ねる（フォールバック側とは異なり厳密な再現性は保証しない）。
 
 ---
 
-## 4. Google PageSpeed Insights
+## 3. Google PageSpeed Insights
 
 `GET https://www.googleapis.com/pagespeedonline/v5/runPagespeed`
 
@@ -126,7 +118,7 @@ Basic認証（`DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD`）。
 
 ---
 
-## 5. Google OAuth 2.0
+## 4. Google OAuth 2.0
 
 | 項目 | 仕様 |
 |---|---|
@@ -141,21 +133,20 @@ Basic認証（`DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD`）。
 
 ---
 
-## 6. キャッシュとコスト制御
+## 5. キャッシュとコスト制御
 
 | 対象 | TTL | キー |
 |---|---|---|
 | SERP結果 | 24時間 | `serp:{device}:{gl}:{keyword}` |
 | クロール結果 | 6時間 | `crawl:{url}` |
 | PageSpeed | 12時間 | `psi:{strategy}:{url}` |
-| 被リンク | 7日 | `backlinks:{domain}` |
 
 - 失敗した結果はキャッシュしない
 - 1日の診断上限：30件／人（環境変数 `DAILY_AUDIT_LIMIT`）
 - SERP同時実行数：4
 - クロール同時実行数：3
 
-## 7. クロールのマナー
+## 6. クロールのマナー
 
 競合サイトを取得するため必ず守る。
 

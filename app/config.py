@@ -27,8 +27,6 @@ class Settings:
     # 外部API
     serp_provider: str = os.getenv("SERP_PROVIDER", "serpapi")
     serpapi_key: str = os.getenv("SERPAPI_KEY", "")
-    dataforseo_login: str = os.getenv("DATAFORSEO_LOGIN", "")
-    dataforseo_password: str = os.getenv("DATAFORSEO_PASSWORD", "")
     anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
     anthropic_model: str = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5")
     psi_api_key: str = os.getenv("PSI_API_KEY", "")
@@ -41,7 +39,6 @@ class Settings:
     serp_cache_ttl: int = int(os.getenv("SERP_CACHE_TTL", "86400"))
     crawl_cache_ttl: int = int(os.getenv("CRAWL_CACHE_TTL", "21600"))
     psi_cache_ttl: int = int(os.getenv("PSI_CACHE_TTL", "43200"))
-    backlink_cache_ttl: int = int(os.getenv("BACKLINK_CACHE_TTL", "604800"))
     fetch_ai_overview_detail: bool = _bool("FETCH_AI_OVERVIEW_DETAIL", "false")
     respect_robots: bool = _bool("RESPECT_ROBOTS", "true")
     user_agent: str = os.getenv("USER_AGENT", "")

@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import db, main
-from app.auth import create_session_cookie
+from app.auth import SESSION_COOKIE, create_session_cookie
 from app.jobs import Job
 
 
@@ -29,7 +29,7 @@ def client(tmp_path):
 
 def _auth_cookie() -> dict:
     value = create_session_cookie("user@example.co.jp", "テストユーザー")
-    return {"session": value}
+    return {SESSION_COOKIE: value}
 
 
 async def _fake_run_audit(job: Job, url: str, devices: list[str], keywords: list[str] | None = None) -> None:
@@ -40,17 +40,16 @@ async def _fake_run_audit(job: Job, url: str, devices: list[str], keywords: list
         "devices": devices,
         "keywords": ["キーワード1"],
         "competitors": ["a.co.jp"],
-        "competitor_backlinks": {"a.co.jp": {"domain": "a.co.jp", "referring_domains": 30, "rank": 40, "backlinks": 100, "dofollow_ratio": 0.8}},
         "competitor_comparison": {
             "example.co.jp": {
                 "char_count": 1000, "h2_count": 3, "qa_heading_count": 1, "has_faq_schema": True,
                 "structured_data_type_count": 1, "list_table_count": 2, "internal_link_count": 10,
-                "eeat_count": 2, "referring_domains": 20,
+                "eeat_count": 2,
             },
             "a.co.jp": {
                 "char_count": 2000, "h2_count": 5, "qa_heading_count": 2, "has_faq_schema": False,
                 "structured_data_type_count": 0, "list_table_count": 4, "internal_link_count": 20,
-                "eeat_count": 3, "referring_domains": 30,
+                "eeat_count": 3,
             },
         },
         "competitor_comparison_labels": {},
@@ -67,7 +66,7 @@ async def _fake_run_audit(job: Job, url: str, devices: list[str], keywords: list
             ],
             "improvements": [{"label": "表示速度（モバイル）", "category": "テクニカルSEO", "impact": 6.0}],
         },
-        "sales_summary": "テスト要約",
+        "improvement_advice": "テストアドバイス",
         "warnings": ["PageSpeed Insights（PC）の取得に失敗しました。"],
     })
 
@@ -93,7 +92,7 @@ def test_report_renders_for_completed_audit(client):
     resp = client.get(f"/report/{audit_id}", cookies=_auth_cookie())
     assert resp.status_code == 200
     assert "example.co.jp" in resp.text
-    assert "テスト要約" in resp.text
+    assert "テストアドバイス" in resp.text
     assert "解説文です。" in resp.text
 
 

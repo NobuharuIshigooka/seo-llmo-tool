@@ -375,7 +375,7 @@ button:focus-visible {
 .band-badge.weak { background: var(--band-weak); }
 .band-badge.poor { background: var(--band-poor); }
 
-.sales-summary p {
+.improvement-advice p {
   font-size: 17px;
   line-height: 1.8;
   margin: 0;

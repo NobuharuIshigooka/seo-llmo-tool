@@ -1,5 +1,6 @@
 from urllib.parse import urlencode
 
+from authlib.integrations.base_client.errors import MismatchingStateError
 from authlib.integrations.starlette_client import OAuth
 from fastapi import APIRouter, Depends, HTTPException, Request
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
@@ -10,7 +11,7 @@ from app.db import get_connection
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-SESSION_COOKIE = "session"
+SESSION_COOKIE = "auth_session"
 SESSION_MAX_AGE = 60 * 60 * 24 * 14  # 14日
 
 oauth = OAuth()
@@ -69,7 +70,16 @@ async def login(request: Request):
 
 @router.get("/callback", name="auth_callback")
 async def callback(request: Request):
-    token = await oauth.google.authorize_access_token(request)
+    try:
+        token = await oauth.google.authorize_access_token(request)
+    except MismatchingStateError:
+        # ブラウザがGoogleのサイレント再認証（prompt=none）等でコールバックを複数回
+        # 送ってくることがある。1回目で成功しstateが消費済みの状態で2回目が来ると
+        # ここに来るため、既にログイン済みならエラーを見せずトップへ流す。
+        raw = request.cookies.get(SESSION_COOKIE)
+        if raw is not None and read_session_cookie(raw) is not None:
+            return RedirectResponse(url="/")
+        raise HTTPException(status_code=401, detail="ログインの有効期限が切れました。再度ログインしてください")
     userinfo = token.get("userinfo")
     if userinfo is None:
         raise HTTPException(status_code=401, detail="Google認証に失敗しました")
@@ -118,6 +128,12 @@ async def require_auth(request: Request) -> CurrentUser:
     session = read_session_cookie(raw)
     if session is None:
         raise HTTPException(status_code=401, detail="セッションが無効です。再度ログインしてください")
+
+    # Cloud Run のファイルシステムは揮発性のため、再デプロイでSQLiteのusersテーブルが
+    # 空になっても、署名付きセッションCookieは有効期限内であれば残り続ける。
+    # その場合でも audits 等の外部キー制約に落ちないよう、都度存在を保証しておく
+    # （docs/deployment.md「データの永続化」参照）。
+    _upsert_user(session["email"], session["name"])
 
     return CurrentUser(email=session["email"], name=session["name"])
 

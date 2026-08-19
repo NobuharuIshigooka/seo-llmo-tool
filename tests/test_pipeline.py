@@ -3,7 +3,6 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app import pipeline
-from app.clients.backlinks import BacklinksResult
 from app.clients.crawler import CrawlError, CrawlResult
 from app.clients.psi import PsiResult
 from app.clients.serp import SerpResult
@@ -85,11 +84,7 @@ async def test_run_audit_completes_with_partial_failures_and_warnings():
          ])), \
          patch.object(pipeline.psi, "analyze_both", new=AsyncMock(return_value={"mobile": None, "desktop": PsiResult(strategy="desktop", performance_score=0.9)})), \
          patch.object(pipeline.db, "get_excluded_domains", return_value=set()), \
-         patch.object(pipeline.backlinks, "get_summaries", new=AsyncMock(return_value={
-             "https://example.co.jp/": BacklinksResult(domain="example.co.jp", referring_domains=20, rank=25),
-             "a.co.jp": None,
-         })), \
-         patch.object(pipeline.llm, "sales_summary", new=AsyncMock(return_value="要約文です。")), \
+         patch.object(pipeline.llm, "improvement_advice", new=AsyncMock(return_value="アドバイス文です。")), \
          patch.object(pipeline.llm, "explain_competitors", new=AsyncMock(return_value="解説文です。")):
         await pipeline.run_audit(job, "https://example.co.jp/", ["desktop"])
 
@@ -99,16 +94,14 @@ async def test_run_audit_completes_with_partial_failures_and_warnings():
     result = done_event["result"]
     assert result["domain"] == "example.co.jp"
     assert result["competitors"] == ["a.co.jp"]
-    assert result["sales_summary"] == "要約文です。"
+    assert result["improvement_advice"] == "アドバイス文です。"
     assert any("PageSpeed Insights（モバイル）" in w for w in result["warnings"])
     assert result["score"]["total_score"] > 0
     assert result["score"]["rubric_version"]
     assert result["serp_results"] == [
         {"keyword": "キーワード1", "device": "desktop", "rank": 2, "ai_overview_shown": False, "ai_overview_cited": False}
     ]
-    assert result["competitor_backlinks"] == {"a.co.jp": None}
     assert set(result["competitor_comparison"].keys()) == {"example.co.jp", "a.co.jp"}
-    assert result["competitor_comparison"]["a.co.jp"]["referring_domains"] is None
     assert result["competitor_explanation"] == "解説文です。"
 
 
@@ -121,17 +114,14 @@ async def test_run_audit_continues_when_serp_fails_entirely():
          patch.object(pipeline.serp, "search_all", new=AsyncMock(side_effect=Exception("serp down"))), \
          patch.object(pipeline.psi, "analyze_both", new=AsyncMock(return_value={"mobile": None, "desktop": None})), \
          patch.object(pipeline.db, "get_excluded_domains", return_value=set()), \
-         patch.object(pipeline.backlinks, "get_summaries", new=AsyncMock(return_value={
-             "https://example.co.jp/": None,
-         })), \
-         patch.object(pipeline.llm, "sales_summary", new=AsyncMock(return_value="要約文です。")):
+         patch.object(pipeline.llm, "improvement_advice", new=AsyncMock(return_value="アドバイス文です。")):
         await pipeline.run_audit(job, "https://example.co.jp/", ["desktop"])
 
     assert job.status == "done"
     result = job.events[-1]["result"]
     assert result["competitors"] == []
     assert any("検索順位の取得に失敗しました" in w for w in result["warnings"])
-    assert result["score"]["categories"][3]["measured"] is False  # authority
+    assert len(result["score"]["categories"]) == 3
 
 
 async def test_run_audit_skips_llm_keyword_extraction_when_keywords_given():
@@ -144,10 +134,7 @@ async def test_run_audit_skips_llm_keyword_extraction_when_keywords_given():
          patch.object(pipeline.serp, "search_all", new=AsyncMock(return_value=[])), \
          patch.object(pipeline.psi, "analyze_both", new=AsyncMock(return_value={"mobile": None, "desktop": None})), \
          patch.object(pipeline.db, "get_excluded_domains", return_value=set()), \
-         patch.object(pipeline.backlinks, "get_summaries", new=AsyncMock(return_value={
-             "https://example.co.jp/": None,
-         })), \
-         patch.object(pipeline.llm, "sales_summary", new=AsyncMock(return_value="要約文です。")):
+         patch.object(pipeline.llm, "improvement_advice", new=AsyncMock(return_value="アドバイス文です。")):
         await pipeline.run_audit(job, "https://example.co.jp/", ["desktop"], keywords=["手動キーワード"])
 
     mock_extract.assert_not_called()

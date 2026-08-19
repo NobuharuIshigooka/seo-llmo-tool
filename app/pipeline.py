@@ -10,7 +10,7 @@ from collections import Counter
 from urllib.parse import urlparse
 
 from app import db, scoring
-from app.clients import backlinks, llm, psi, serp
+from app.clients import llm, psi, serp
 from app.clients.crawler import CrawlError, CrawlResult, fetch as crawl_fetch
 from app.config import settings
 from app.jobs import Job
@@ -21,11 +21,10 @@ STAGE_LABELS = {
     "serp": "検索順位とAI Overviewを取得中",
     "psi": "表示速度を計測中",
     "competitors": "競合サイトを分析中",
-    "backlinks": "被リンクを調査中",
     "score": "スコア算出・要約生成中",
 }
 
-# requirements.md 4.5 の比較指標。参照ドメイン数はbacklinksの結果を別途マージする。
+# requirements.md 4.5 の比較指標。
 COMPARISON_METRIC_LABELS = {
     "char_count": "文字数",
     "h2_count": "H2数",
@@ -113,24 +112,6 @@ async def _run_psi(job: Job, url: str, warnings: list[str]) -> dict[str, psi.Psi
     return results
 
 
-async def _run_backlinks(
-    job: Job, own_url: str, competitor_domains: list[str], warnings: list[str]
-) -> dict[str, backlinks.BacklinksResult | None]:
-    job.emit_progress("backlinks", STAGE_LABELS["backlinks"])
-    targets = [own_url] + competitor_domains
-    try:
-        results = await backlinks.get_summaries(targets)
-    except Exception as exc:
-        warnings.append(f"被リンク調査に失敗したため、権威性・被リンクは未計測として算出しました: {exc}")
-        results = {target: None for target in targets}
-
-    if results.get(own_url) is None:
-        warnings.append("自社サイトの被リンク調査に失敗したため、権威性・被リンクは未計測として算出しました。")
-
-    job.emit_progress("backlinks", STAGE_LABELS["backlinks"], done=True)
-    return results
-
-
 async def _run_competitors(
     job: Job,
     own_domain: str,
@@ -175,9 +156,7 @@ async def _fetch_competitor_page(domain: str) -> CrawlResult | None:
 async def _run_competitor_comparison(
     own_page: CrawlResult,
     own_domain: str,
-    own_backlinks: backlinks.BacklinksResult | None,
     competitor_domains: list[str],
-    backlink_results: dict[str, backlinks.BacklinksResult | None],
     warnings: list[str],
 ) -> tuple[dict, str | None]:
     """競合3社を実クロールし、requirements.md 4.5 の比較指標を算出する。
@@ -191,7 +170,6 @@ async def _run_competitor_comparison(
     pages = await asyncio.gather(*(_fetch_competitor_page(d) for d in competitor_domains))
 
     own_metrics = _comparison_metrics(own_page)
-    own_metrics["referring_domains"] = own_backlinks.referring_domains if own_backlinks else None
     comparison: dict[str, dict] = {own_domain: own_metrics}
 
     failed_domains: list[str] = []
@@ -199,19 +177,15 @@ async def _run_competitor_comparison(
         if page is None:
             failed_domains.append(domain)
             continue
-        metrics = _comparison_metrics(page)
-        bl = backlink_results.get(domain)
-        metrics["referring_domains"] = bl.referring_domains if bl else None
-        comparison[domain] = metrics
+        comparison[domain] = _comparison_metrics(page)
 
     if failed_domains:
         warnings.append(f"競合サイトのクロールに失敗したため比較対象から除外しました: {', '.join(failed_domains)}")
 
     explanation = None
     if len(comparison) >= 2:
-        labels = COMPARISON_METRIC_LABELS | {"referring_domains": "参照ドメイン数"}
         localized = [
-            {"ドメイン": domain, **{labels.get(k, k): v for k, v in metrics.items()}}
+            {"ドメイン": domain, **{COMPARISON_METRIC_LABELS.get(k, k): v for k, v in metrics.items()}}
             for domain, metrics in comparison.items()
         ]
         try:
@@ -229,9 +203,7 @@ async def _run_score_and_narrative(
     keywords: list[str],
     serp_results: list[serp.SerpResult],
     psi_results: dict[str, psi.PsiResult | None],
-    own_backlinks: backlinks.BacklinksResult | None,
     competitor_domains: list[str],
-    backlink_results: dict[str, backlinks.BacklinksResult | None],
     warnings: list[str],
 ) -> tuple[scoring.ScoreResult, str, dict, str | None]:
     job.emit_progress("score", STAGE_LABELS["score"])
@@ -242,31 +214,18 @@ async def _run_score_and_narrative(
         serp_results,
         psi_results.get("mobile"),
         psi_results.get("desktop"),
-        own_backlinks,
     )
 
     weak_points = [imp.label for imp in score_result.improvements]
 
-    # llm.sales_summary() は失敗時に自前でテンプレート文へフォールバックするため例外は送出しない
-    summary, (comparison, explanation) = await asyncio.gather(
-        llm.sales_summary(score_result.total_score, score_result.band, weak_points),
-        _run_competitor_comparison(page, own_domain, own_backlinks, competitor_domains, backlink_results, warnings),
+    # llm.improvement_advice() は失敗時に自前でテンプレート文へフォールバックするため例外は送出しない
+    advice, (comparison, explanation) = await asyncio.gather(
+        llm.improvement_advice(score_result.total_score, score_result.band, weak_points),
+        _run_competitor_comparison(page, own_domain, competitor_domains, warnings),
     )
 
     job.emit_progress("score", STAGE_LABELS["score"], done=True)
-    return score_result, summary, comparison, explanation
-
-
-def _backlinks_to_dict(result: backlinks.BacklinksResult | None) -> dict | None:
-    if result is None:
-        return None
-    return {
-        "domain": result.domain,
-        "referring_domains": result.referring_domains,
-        "rank": result.rank,
-        "backlinks": result.backlinks,
-        "dofollow_ratio": result.dofollow_ratio,
-    }
+    return score_result, advice, comparison, explanation
 
 
 def _serp_results_to_list(serp_results: list[serp.SerpResult]) -> list[dict]:
@@ -316,8 +275,7 @@ def _score_result_to_dict(score_result: scoring.ScoreResult) -> dict:
 async def run_audit(job: Job, url: str, devices: list[str], keywords: list[str] | None = None) -> None:
     """診断ジョブのランナー本体。JobManager.create_job() の runner として渡す想定。
 
-    工程5（competitors）は自社SERP結果からの抽出に依存し、工程6（backlinks）は
-    competitors が確定した競合ドメインに依存するため、serp → competitors → backlinks
+    工程5（competitors）は自社SERP結果からの抽出に依存するため、serp → competitors
     の順に実行する。serp と psi は競合ドメインに依存しないため並行実行できる。
 
     keywords を指定した場合、工程2（keywords）はLLM推定をスキップしてそのまま使う
@@ -340,11 +298,10 @@ async def run_audit(job: Job, url: str, devices: list[str], keywords: list[str] 
     )
 
     competitor_domains = await _run_competitors(job, own_domain, serp_results, warnings)
-    backlink_results = await _run_backlinks(job, url, competitor_domains, warnings)
 
-    score_result, summary, comparison, explanation = await _run_score_and_narrative(
-        job, page, own_domain, keywords, serp_results, psi_results, backlink_results.get(url),
-        competitor_domains, backlink_results, warnings,
+    score_result, advice, comparison, explanation = await _run_score_and_narrative(
+        job, page, own_domain, keywords, serp_results, psi_results,
+        competitor_domains, warnings,
     )
 
     result = {
@@ -353,15 +310,12 @@ async def run_audit(job: Job, url: str, devices: list[str], keywords: list[str] 
         "devices": devices,
         "keywords": keywords,
         "competitors": competitor_domains,
-        "competitor_backlinks": {
-            domain: _backlinks_to_dict(backlink_results.get(domain)) for domain in competitor_domains
-        },
         "competitor_comparison": comparison,
         "competitor_comparison_labels": COMPARISON_METRIC_LABELS,
         "competitor_explanation": explanation,
         "serp_results": _serp_results_to_list(serp_results),
         "score": _score_result_to_dict(score_result),
-        "sales_summary": summary,
+        "improvement_advice": advice,
         "warnings": warnings,
     }
     job.emit_done(result)

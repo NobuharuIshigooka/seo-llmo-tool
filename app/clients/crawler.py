@@ -14,10 +14,12 @@ from app.config import settings
 
 TIMEOUT_SECONDS = 25
 MAX_CONCURRENT_PER_DOMAIN = 3
+MAX_CONCURRENT_BROWSERS = 2  # Chromiumプロセスはメモリを多く使うため、ドメイン横断でも同時起動数を絞る
 
 _domain_semaphores: dict[str, asyncio.Semaphore] = defaultdict(
     lambda: asyncio.Semaphore(MAX_CONCURRENT_PER_DOMAIN)
 )
+_browser_semaphore = asyncio.Semaphore(MAX_CONCURRENT_BROWSERS)
 
 
 @dataclass
@@ -27,8 +29,12 @@ class CrawlResult:
     meta_description: str = ""
     h1_list: list[str] = field(default_factory=list)
     h2_list: list[str] = field(default_factory=list)
+    h3_list: list[str] = field(default_factory=list)
     body_text: str = ""
     first_paragraph: str = ""
+    meta_keywords: list[str] = field(default_factory=list)
+    alt_texts: list[str] = field(default_factory=list)
+    internal_link_texts: list[str] = field(default_factory=list)
     has_viewport: bool = False
     json_ld_types: list[str] = field(default_factory=list)
     is_noindex: bool = False
@@ -83,6 +89,12 @@ def _parse_html(url: str, html: str, fetched_via: str) -> CrawlResult:
     if meta_desc and meta_desc.get("content"):
         result.meta_description = meta_desc["content"].strip()
 
+    meta_keywords = soup.find("meta", attrs={"name": "keywords"})
+    if meta_keywords and meta_keywords.get("content"):
+        result.meta_keywords = [
+            kw.strip() for kw in meta_keywords["content"].split(",") if kw.strip()
+        ]
+
     viewport = soup.find("meta", attrs={"name": "viewport"})
     result.has_viewport = viewport is not None
 
@@ -95,6 +107,7 @@ def _parse_html(url: str, html: str, fetched_via: str) -> CrawlResult:
 
     result.h1_list = [h.get_text(strip=True) for h in soup.find_all("h1")]
     result.h2_list = [h.get_text(strip=True) for h in soup.find_all("h2")]
+    result.h3_list = [h.get_text(strip=True) for h in soup.find_all("h3")]
 
     for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
         try:
@@ -112,6 +125,7 @@ def _parse_html(url: str, html: str, fetched_via: str) -> CrawlResult:
 
     page_domain = urlparse(url).netloc
     internal_links = 0
+    internal_link_texts: list[str] = []
     for a in soup.find_all("a", href=True):
         href = a["href"].strip()
         if not href or href.startswith("#") or href.startswith(("mailto:", "tel:", "javascript:")):
@@ -119,7 +133,15 @@ def _parse_html(url: str, html: str, fetched_via: str) -> CrawlResult:
         link_domain = urlparse(href).netloc
         if not link_domain or link_domain == page_domain:
             internal_links += 1
+            text = a.get_text(strip=True)
+            if text:
+                internal_link_texts.append(text)
     result.internal_link_count = internal_links
+    result.internal_link_texts = internal_link_texts
+
+    result.alt_texts = [
+        img["alt"].strip() for img in soup.find_all("img", alt=True) if img["alt"].strip()
+    ]
 
     body = soup.find("body")
     if body:
@@ -135,14 +157,15 @@ def _parse_html(url: str, html: str, fetched_via: str) -> CrawlResult:
 
 
 async def _fetch_with_playwright(url: str, user_agent: str) -> str:
-    async with async_playwright() as p:
-        browser = await p.chromium.launch()
-        try:
-            page = await browser.new_page(user_agent=user_agent)
-            await page.goto(url, timeout=TIMEOUT_SECONDS * 1000, wait_until="domcontentloaded")
-            return await page.content()
-        finally:
-            await browser.close()
+    async with _browser_semaphore:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch()
+            try:
+                page = await browser.new_page(user_agent=user_agent)
+                await page.goto(url, timeout=TIMEOUT_SECONDS * 1000, wait_until="domcontentloaded")
+                return await page.content()
+            finally:
+                await browser.close()
 
 
 async def _fetch_with_httpx(url: str, user_agent: str) -> str:

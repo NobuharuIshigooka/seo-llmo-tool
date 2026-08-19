@@ -7,19 +7,17 @@
 import re
 from dataclasses import dataclass, field
 
-from app.clients.backlinks import BacklinksResult
 from app.clients.crawler import CrawlResult
 from app.clients.psi import PsiResult
 from app.clients.serp import SerpResult
 
-RUBRIC_VERSION = "2026.08.1"
+RUBRIC_VERSION = "2026.08.2"
 
 # ---- カテゴリ配点 ----
 CATEGORY_WEIGHTS = {
     "technical_seo": 30,
     "content_seo": 30,
     "llmo": 25,
-    "authority": 15,
 }
 
 # ---- ①テクニカルSEO ----
@@ -88,13 +86,6 @@ INTRO_MIN_CHARS = 40
 INTRO_MAX_CHARS = 200
 INTRO_PARTIAL_POINTS = 10
 AI_OVERVIEW_NEUTRAL_RATIO = 0.5  # AI Overview が1件も表示されない場合の中立評価
-
-# ---- ④権威性・被リンク ----
-AUTHORITY_REFERRING_DOMAINS_POINTS = 8
-AUTHORITY_REFERRING_DOMAINS_FULL = 100
-AUTHORITY_RANK_POINTS = 7
-AUTHORITY_RANK_FULL = 60
-AUTHORITY_TOTAL = AUTHORITY_REFERRING_DOMAINS_POINTS + AUTHORITY_RANK_POINTS  # 8+7=15
 
 # ---- 評価バンド ----
 BAND_THRESHOLDS = [
@@ -349,28 +340,6 @@ def score_llmo(page: CrawlResult, serp_results: list[SerpResult]) -> CategorySco
 
 
 # ---------------------------------------------------------------------------
-# ④権威性・被リンク
-# ---------------------------------------------------------------------------
-
-
-def score_authority(backlinks: BacklinksResult | None) -> CategoryScore:
-    if backlinks is None:
-        return CategoryScore("authority", "権威性・被リンク", 0.0, CATEGORY_WEIGHTS["authority"], measured=False)
-
-    items: list[ScoreItem] = []
-
-    domains_score = _ratio_score(backlinks.referring_domains, AUTHORITY_REFERRING_DOMAINS_FULL, AUTHORITY_REFERRING_DOMAINS_POINTS)
-    items.append(ScoreItem("参照ドメイン数", domains_score, AUTHORITY_REFERRING_DOMAINS_POINTS, f"参照ドメイン数 {backlinks.referring_domains}"))
-
-    rank_score = _ratio_score(backlinks.rank, AUTHORITY_RANK_FULL, AUTHORITY_RANK_POINTS)
-    items.append(ScoreItem("ドメインランク", rank_score, AUTHORITY_RANK_POINTS, f"ドメインランク {backlinks.rank}"))
-
-    raw_total = sum(i.score for i in items)
-    normalized = raw_total / AUTHORITY_TOTAL * CATEGORY_WEIGHTS["authority"]
-    return CategoryScore("authority", "権威性・被リンク", normalized, CATEGORY_WEIGHTS["authority"], items=items)
-
-
-# ---------------------------------------------------------------------------
 # 総合スコア・評価バンド・改善インパクト
 # ---------------------------------------------------------------------------
 
@@ -394,13 +363,11 @@ def compute_total_score(categories: list[CategoryScore]) -> tuple[int, str]:
     return total_score, _band_of(total_score)
 
 
-def compute_improvements(categories: list[CategoryScore], exclude_authority: bool = False) -> list[ImprovementPoint]:
-    """失点 ÷ 100 × カテゴリ重み を計算し、大きい順に上位3件を返す。被リンク関連は除外可能。"""
+def compute_improvements(categories: list[CategoryScore]) -> list[ImprovementPoint]:
+    """失点 ÷ 100 × カテゴリ重み を計算し、大きい順に上位3件を返す。"""
     points: list[ImprovementPoint] = []
     for category in categories:
         if not category.measured:
-            continue
-        if exclude_authority and category.key == "authority":
             continue
         for item in category.items:
             lost_points = item.max_score - item.score
@@ -419,16 +386,14 @@ def compute_score(
     serp_results: list[SerpResult],
     psi_mobile: PsiResult | None,
     psi_desktop: PsiResult | None,
-    backlinks: BacklinksResult | None,
 ) -> ScoreResult:
     categories = [
         score_technical_seo(page, psi_mobile, psi_desktop),
         score_content_seo(page, keywords),
         score_llmo(page, serp_results),
-        score_authority(backlinks),
     ]
     total_score, band = compute_total_score(categories)
-    improvements = compute_improvements(categories, exclude_authority=True)
+    improvements = compute_improvements(categories)
 
     return ScoreResult(
         total_score=total_score,

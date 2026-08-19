@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import db, main
-from app.auth import create_session_cookie
+from app.auth import SESSION_COOKIE, create_session_cookie
 from app.jobs import Job
 
 
@@ -29,7 +29,7 @@ def client(tmp_path):
 
 def _auth_cookie() -> dict:
     value = create_session_cookie("user@example.co.jp", "テストユーザー")
-    return {"session": value}
+    return {SESSION_COOKIE: value}
 
 
 def test_create_audit_requires_auth(client):
@@ -55,7 +55,7 @@ async def _fake_run_audit(job: Job, url: str, devices: list[str], keywords: list
         "keywords": [],
         "competitors": [],
         "score": {"total_score": 50, "band": "weak", "rubric_version": "test", "categories": [], "improvements": []},
-        "sales_summary": "テスト要約",
+        "improvement_advice": "テストアドバイス",
         "warnings": [],
     })
 
@@ -91,7 +91,7 @@ def test_get_audit_result_after_completion(client):
     assert resp.status_code == 200
     body = resp.json()
     assert body["status"] == "done"
-    assert body["result"]["sales_summary"] == "テスト要約"
+    assert body["result"]["improvement_advice"] == "テストアドバイス"
 
 
 def test_create_audit_forwards_manual_keywords_to_pipeline(client):

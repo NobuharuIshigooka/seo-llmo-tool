@@ -224,19 +224,16 @@ CLAUDE.md の実装状況チェックリスト（工程1〜6）を作業単位�
   - [x] `BASE_URL` 環境変数を設定して再デプロイ済み（2026-08-18）
   - [x] Google OAuthクライアントの「承認済みのリダイレクトURI」に
     `https://seo-llmo-tool-864337619528.asia-northeast1.run.app/auth/callback` を追加済み（ユーザー作業）
-  - [ ] `ALLOWED_HD` / `ALLOWED_EMAILS` は現時点で未設定（ユーザー判断により後日登録）。
-    `app/auth.py` の `_is_allowed()` は両方空の場合 `False` を返す実装のため、
-    未設定でも「誰でもログイン可能」にはならず安全側（＝現状は誰もログインできない）。
-    許可対象が決まったら以下で追加：
-    ```
-    gcloud run services update seo-llmo-tool --region=asia-northeast1 --project=seo-llmo-tool \
-      --update-env-vars="ALLOWED_EMAILS=user1@example.com,user2@example.com"
-    # または
-    gcloud run services update seo-llmo-tool --region=asia-northeast1 --project=seo-llmo-tool \
-      --update-env-vars="ALLOWED_HD=example.co.jp"
-    ```
-  - [ ] **次回はここから再開**：`ALLOWED_EMAILS`（または`ALLOWED_HD`）に許可対象を登録 →
-    ブラウザで実際にログイン・診断1件を実走確認
+  - [x] `ALLOWED_EMAILS` を設定済み（2026-08-19、社内ドメイン一括ではなく個別メール許可の方針で確定・ユーザー判断）。
+    現時点で判明している1件のみ登録、残りメンバーは判明次第カンマ区切りで追記していく運用：
+    `ipi.dai2.ishigouoka.20260801@gmail.com`
+    - 追加時のコマンド（毎回フルリストを指定する。差分追加ではなく上書きなので既存分を含めること）：
+      ```
+      gcloud run services update seo-llmo-tool --region=asia-northeast1 --project=seo-llmo-tool \
+        --update-env-vars="ALLOWED_EMAILS=addr1@example.com,addr2@example.com"
+      ```
+    - `ALLOWED_HD` は使わない方針（個別メール許可を選択）
+  - [ ] **次回はここから再開**：ブラウザで実際にログイン・診断1件を実走確認
 - [x] Cloud Storage への SQLite 日次バックアップ（2026-08-17）
   - `POST /internal/backup`（`app/main.py`・`app/backup.py`）をCloud Schedulerから日次で呼ぶ方式で実装（ユーザー承認済み）
   - 認証は共有シークレットヘッダー `X-Backup-Secret`（環境変数 `BACKUP_SECRET`、ユーザー承認済み）。バケットは `BACKUP_GCS_BUCKET`
@@ -244,8 +241,166 @@ CLAUDE.md の実装状況チェックリスト（工程1〜6）を作業単位�
   - `requirements.txt` に `google-cloud-storage` を追加
   - ユニットテスト `tests/test_backup.py`・`tests/test_backup_endpoint.py` で検証済み
   - **GCP側の作業が別途必要**（`docs/deployment.md` 4章に手順を明記）：GCSバケット作成・Cloud Runサービスアカウントへの書き込み権限付与・`BACKUP_SECRET`をSecret Managerに格納・Cloud Schedulerジョブ作成
-- [ ] 実サイトでの診断10〜20件を確認し、`scoring.py` の満点ライン（本文文字数・参照ドメイン数等）を調整 — **実サイトURLでの診断実行が必要（ユーザー）**
-- [ ] SerpApi 残枠・DataForSEO 残高の運用確認体制の整備 — 残枠表示API自体は工程5で実装済み（`GET /api/serp-account`）。運用フロー（誰がいつ確認するか）の取り決めは**ユーザー判断**
+- [x] 実サイト診断1件目を実走確認（2026-08-19、Cloud Run本番環境）。ログイン→診断完了まで一連の流れをブラウザで確認済み
+  - 確認過程で2件のバグを発見・修正：
+    1. Cloud RunがTLS終端後にコンテナへ`X-Forwarded-Proto`付きの平文HTTPで転送するため、Uvicornが`--proxy-headers`なしだと
+       スキームを`http`と誤認識し、Google OAuthの`redirect_uri`が`http://`になって`redirect_uri_mismatch`エラーが発生。
+       `Dockerfile`のCMDに`--proxy-headers --forwarded-allow-ips='*'`を追加して解消
+    2. `app/auth.py`のログイン確定用Cookie名`SESSION_COOKIE = "session"`がStarletteの`SessionMiddleware`の
+       デフォルトCookie名（`"session"`）と衝突し、OAuthコールバック直後に`SessionMiddleware`がstate消費後の
+       空セッションを「クリア」として同名Cookieを1970年期限切れで上書きし、ログインが成立しない不具合があった。
+       `SESSION_COOKIE`を`"auth_session"`に変更して分離（`app/main.py`・テストの`_auth_cookie()`も追随済み）
+  - 上記2件はいずれもCloud Buildでイメージ再ビルド→`gcloud run deploy`で再デプロイ済み
+- [ ] 実サイトでの診断10〜20件を確認し、`scoring.py` の満点ライン（本文文字数等）を調整 — **実サイトURLでの追加の診断実行が必要（ユーザー）**
+- [ ] SerpApi 残枠の運用確認体制の整備 — 残枠表示API自体は工程5で実装済み（`GET /api/serp-account`）。運用フロー（誰がいつ確認するか）の取り決めは**ユーザー判断**
+
+### 2026-08-19：ユーザーフィードバックによる仕様変更2件
+
+診断1件目の実走確認後、ユーザーから以下の修正指示があり実装済み。
+
+1. **「営業トーク要約」→「改善アドバイス」に変更**：文面を営業担当が読み上げる想定から、
+   サイト運営者・担当者への改善アドバイス（「〜を改善しましょう」等、次の行動が分かる文章）に変更。
+   - `app/clients/llm.py`：`sales_summary()` → `improvement_advice()` にリネーム、プロンプト変更
+   - `app/pipeline.py`：結果JSONのキーを `sales_summary` → `improvement_advice` に変更
+   - `app/templates/index.html` / `report.html`・`app/static/js/audit.js` / `main.css`：表示文言・DOM ID・CSSクラスを追随
+2. **被リンク（権威性・被リンクカテゴリ15点）を廃止**：配点表から完全削除し、残り3カテゴリ
+   （テクニカル30・コンテンツ30・LLMO25＝合計85点）を100点に正規化する方式に変更（ユーザー判断で決定、
+   DataForSEO連携自体も完全停止・課金停止）。
+   - `docs/scoring.md`・`docs/requirements.md`・`docs/architecture.md`・`docs/api-integrations.md`・
+     `docs/deployment.md`：配点表・パイプライン図・APIキー一覧・キャッシュキー一覧などから被リンク関連の記載を削除
+   - `app/scoring.py`：`score_authority()`・`AUTHORITY_*`定数を削除、`CATEGORY_WEIGHTS`から`authority`を削除、
+     `rubric_version`を`2026.08.2`に更新
+   - `app/pipeline.py`：`_run_backlinks()`工程を削除（7工程→6工程）、競合比較の「参照ドメイン数」列も削除
+   - `app/clients/backlinks.py`：削除（DataForSEO呼び出しコード自体を撤去）
+   - `app/config.py`：`dataforseo_login`/`dataforseo_password`/`backlink_cache_ttl`を削除
+   - テスト一式（`test_scoring.py`・`test_pipeline.py`・`test_llm.py`・`test_api_audits.py`・`test_report_and_admin.py`）を更新、
+     `test_backlinks.py`は削除。全83件パス確認済み
+   - 上記2件をビルド・デプロイ後、再度実走確認したところ「被リンクを調査中」のまま画面が進まない不具合が発生。
+     原因はブラウザが再デプロイ前の古い`static/js/audit.js`をキャッシュしたまま使い続けていたため
+     （旧JSの`STAGES`配列に残っていた`backlinks`ステージの完了をSSEから永遠に待ち続けていた）。
+     `app/main.py`でコンテナ起動時刻を`asset_version`としてJinja2グローバルに登録し、
+     `base.html`（CSS）・`index.html`（audit.js）の読み込みURLに`?v={{ asset_version }}`を付与して
+     再デプロイのたびにキャッシュバスティングされるよう修正（`app/main.py`・`app/templates/base.html`・`index.html`）
+   - **未実施**：Secret Manager上の`DATAFORSEO_LOGIN`/`DATAFORSEO_PASSWORD`シークレットの削除是非
+     （残しておいても実害はないが、不要になったため削除を検討してよい）
+
+### 2026-08-19：キーワード抽出の改善（ユーザーフィードバック3件目）
+
+タイトルが「包茎手術・亀頭増大術・長茎術・ED・性病検査」のように`・`区切りで複数語を
+並べている場合、1個のキーワードとしてまとめず語句ごとに分割してほしいという指摘。
+
+- `app/clients/llm.py`
+  - `extract_keywords()`のプロンプトに、区切り文字・括弧で並んだ語句は個別キーワードとして
+    抽出する旨と具体例を追加
+  - `_fallback_keywords()`（LLM呼び出し失敗時のフォールバック）の分割パターンを
+    `[|｜\-–—:：/／]`（区切り文字のみ）から`・`・読点・カンマ・各種括弧を含む
+    `_KEYWORD_SPLIT_PATTERN`に拡張し、`re.split()[0]`（先頭要素のみ採用）から
+    全分割片を候補に追加する方式に変更
+- `tests/test_llm.py`：フォールバックの新しい分割挙動に合わせて既存2件を更新、
+  `・`区切りタイトルの分割を検証するテストを追加。全84件パス
+
+### 2026-08-19：メモリ上限超過によるコンテナクラッシュを修正
+
+診断が「スコア算出・要約生成中」で止まる不具合が発生。Cloud Runログを確認したところ、
+`Memory limit of 2048 MiB exceeded with 2167 MiB used` でコンテナが再起動していた
+（進行中ジョブはプロセス内メモリ保持のため、再起動でジョブごと消え、SSE再接続が404になり
+画面がそこで止まって見える）。
+
+原因は`app/pipeline.py`の`_run_competitor_comparison`が競合3社を`asyncio.gather`で完全並行クロールし、
+自社クロールと合わせて最大4つのPlaywright（Chromium）プロセスがほぼ同時に起動していたこと。
+Chromiumは1プロセスあたりのメモリ消費が大きく、2GB上限を超えていた。
+
+対応（ユーザー判断：メモリ増設ではなく並列数制限を選択）：
+- `app/clients/crawler.py`：`MAX_CONCURRENT_BROWSERS = 2`のグローバルセマフォ（`_browser_semaphore`）を追加し、
+  `_fetch_with_playwright()`をこれで囲んだ。ドメイン単位の既存セマフォ（`_domain_semaphores`、同一ドメイン3並列）は
+  異なるドメイン間の同時実行を制限できないため、別途ドメイン横断の上限として新設
+- 診断1回あたりの実質的なクロール所要時間は伸びる可能性があるが、コンテナクラッシュより優先
+
+同時に気づいた別件（今回は未修正、再発時に想定される事象として記録）：
+Cloud RunのSQLiteは再デプロイ・コンテナ再起動のたびに揮発する一方、ブラウザの認証Cookieは
+有効期限内であれば残り続けるため、「Cookieは有効だがusersテーブルに該当ユーザーがいない」状態で
+`FOREIGN KEY constraint failed`が発生することがある（`docs/deployment.md`に既知の制約として記載あり）。
+今回はログアウト→再ログインで復旧。恒久対応（例：外部キー違反時に自動ログアウトさせるミドルウェア等）は
+工程6の本番運用開始が近づいたタイミングで改めて検討する。
+
+### 2026-08-19：キーワード抽出の対象をmeta description・H3にも拡大（ユーザーフィードバック4件目）
+
+前回（3件目）はタイトルの`・`区切り分割のみ対応していたが、meta descriptionと見出し(H1〜H3)にも
+同様の分割を適用してほしいという指摘。
+
+- `app/clients/crawler.py`：`CrawlResult`に`h3_list`フィールドを追加、`_parse_html()`でH3タグも抽出。
+  スコアリング（`scoring.py`）はH1・H2のみを対象とする`docs/scoring.md`の定義通りのため変更なし
+  （H3追加はキーワード抽出専用の情報源で、配点ロジックには影響しない）
+- `app/clients/llm.py`
+  - `extract_keywords()`のプロンプトにH3を追加、対象範囲を明示
+  - `_fallback_keywords()`の候補にmeta descriptionとh3_listを追加
+  - 分割パターン`_KEYWORD_SPLIT_PATTERN`に句点`。`を追加（meta descriptionは文章として
+    書かれることが多く、句点区切りの各文もキーワード候補にする必要があったため）
+- `tests/test_llm.py`：`_fallback_keywords`がmeta description・H3も分割対象にすることを検証する
+  テストを追加、既存テストの期待値を更新。全85件パス
+
+### 2026-08-19：ログイン時の`MismatchingStateError`（再発）を修正
+
+前回（2026-08-19早い時点）直したのはCookie名衝突によるログイン失敗だったが、今回は別要因で
+同じ`authlib.integrations.base_client.errors.MismatchingStateError`が発生し「サーバーエラー」画面が出た。
+
+ログを確認したところ、1回目のログイン（`/auth/login`→`/auth/callback`）は正常に成功し診断も起票できていたが、
+約6分後にGoogle側が`prompt=none`のサイレント再認証で**同じstateを使って`/auth/callback`を再度呼んでいた**。
+1回目の処理でauthlibがそのstateをセッションから消費済みのため、2回目の照合で不一致となり500エラーになっていた。
+ブラウザ・Google IdP側の挙動であり、コード側の不具合ではないが、ユーザー体験としてエラー画面を出すべきではない。
+
+- `app/auth.py`：`callback()`で`MismatchingStateError`を捕捉し、その時点で有効なログインセッションCookie
+  （`SESSION_COOKIE`）が既にあればエラーを見せずトップページへリダイレクト。ログイン済みでない場合のみ
+  401エラーとして扱う
+- `tests/test_auth.py`（新規）：ログイン済み時はリダイレクト、未ログイン時は401になることを検証。
+  全87件パス
+
+### 2026-08-19：`FOREIGN KEY constraint failed`を恒久対応
+
+同じ`sqlite3.IntegrityError: FOREIGN KEY constraint failed`（`audits.created_by`→`users.email`）が
+再デプロイのたびに再発するため、これまでの「ログアウト→再ログインで復旧」という運用回避をやめ、
+根本対応した。
+
+原因：`app/auth.py`の`require_auth()`は署名付きセッションCookieの検証のみ行い、DBに該当ユーザーが
+実在するかは見ていなかった。Cloud RunのSQLiteは再デプロイ・コンテナ再起動のたびに揮発する一方、
+ブラウザの認証Cookieは有効期限（14日）内であれば残り続けるため、「Cookieは有効だがusersテーブルに
+該当ユーザー行がない」状態が频発し、audits等への書き込みで外部キー制約に落ちていた。
+
+- `app/auth.py`：`require_auth()`の中で毎回`_upsert_user(email, name)`を呼び、セッションCookieが
+  有効な時点でDBの該当ユーザー行の存在を保証するように変更。ログインコールバック時と同じ
+  `INSERT ... ON CONFLICT DO UPDATE`なので、通常時（ユーザーが既に存在する）はオーバーヘッドも小さい
+- `tests/test_auth.py`：`test_require_auth_recreates_missing_user_row`を追加。usersテーブルが空の状態で
+  有効なセッションCookieのみを使って`POST /api/audits`が成功し、ユーザー行が自動的に作り直される
+  ことを検証。全88件パス
+- この対応により、今後のCloud Run再デプロイ後もユーザーは再ログイン不要で使い続けられる
+  （ただし進行中の診断ジョブ自体はプロセス内メモリ保持のため、コンテナ再起動を挟むと消える点は
+  引き続き制約として残る。工程6のジョブ管理をRedis+RQに置き換えるまでの暫定挙動）
+
+### 2026-08-19：キーワード抽出をルールベースで大幅拡張（ユーザーフィードバック5件目）
+
+これまで（3・4件目）はタイトル・meta description・見出しの区切り文字分割のみだったが、
+「本文の頻出名詞」「meta keywords・alt属性・内部リンク文字列を補助的に使う」
+「重複排除して出現回数順に並べる」という要望。ルールベースの候補生成として`_fallback_keywords()`
+（LLM失敗時のフォールバックだが、要件自体が数え上げ処理でLLM判断が不要なため、ここに実装する
+方針をユーザーと確認して決定）に実装した。
+
+- `requirements.txt`：`fugashi==1.4.0`（MeCab互換の形態素解析、純Python実装）・
+  `unidic-lite==1.0.8`（辞書データ）を追加
+- `app/clients/crawler.py`：`CrawlResult`に`meta_keywords`・`alt_texts`・`internal_link_texts`を追加、
+  `_parse_html()`で`<meta name="keywords">`・`<img alt>`・内部リンクのアンカーテキストを抽出
+- `app/clients/llm.py`
+  - `_fallback_keywords()`を全面刷新。主要情報源（title/meta description/h1〜h3/meta keywords、
+    区切り文字分割）・本文頻出名詞（形態素解析）・補助情報源（alt属性・内部リンク文字列、
+    区切り文字分割）の3種類の候補を`Counter`で集計し、主要情報源には優先度ボーナス
+    （`_PRIMARY_SOURCE_BONUS = 1000`、本文でどれだけ頻出する語があっても基本的に逆転されない値）
+    を加算した上で、出現回数の多い順・同スコア時は初出順にソートして上位N件を返す
+  - `extract_keywords()`のプロンプトにもmeta keywords・alt属性・内部リンク文字列を追加情報として
+    渡すよう変更（頻度ソート等のロジック自体はClaudeに強制していない）
+- `tests/test_crawler.py`：meta keywords・alt属性・内部リンクテキストの抽出を検証するテストを追加
+- `tests/test_llm.py`：本文頻出名詞の抽出、主要情報源が本文頻度に埋もれないこと、alt属性・
+  内部リンク文字列の利用、重複排除を検証するテストを追加。全92件パス
+- ローカル動作確認：`fugashi.Tagger()`がPython 3.13のvenvでインストール・実行できることを確認済み。
+  Cloud Run側（`mcr.microsoft.com/playwright/python:v1.48.0-jammy`ベース）でのビルド確認はこの後実施
 
 ---
 

@@ -13,11 +13,12 @@
                                           │
                                           ├─ Playwright（自社・競合クロール）
                                           ├─ SerpApi（順位・AI Overview）
-                                          ├─ DataForSEO（被リンク）
                                           ├─ PageSpeed Insights（表示速度）
-                                          ├─ Claude API（推定・解説・要約）
+                                          ├─ Claude API（推定・解説・改善アドバイス）
                                           └─ SQLite（履歴・キャッシュ）
 ```
+
+2026-08-19：DataForSEO（被リンク）連携を廃止した。
 
 ## 2. Webアプリとしての要件
 
@@ -60,9 +61,12 @@
 - レスポンスヘッダに `Cache-Control: no-cache` と `X-Accel-Buffering: no` を付ける
 - 後から接続したクライアントが取りこぼさないよう、過去のイベントを再送する
 
-## 4. 診断パイプライン（7工程）
+## 4. 診断パイプライン（6工程）
 
 `pipeline.py` が統括する。工程名はUIの進捗レールと1対1で対応させる。
+
+2026-08-19：被リンク調査工程（旧6番目）を廃止した。DataForSEO連携・権威性カテゴリを
+診断から完全に除去し、7工程から6工程構成に変更した。
 
 | # | stage | ラベル | 目安 | 失敗時 |
 |---|---|---|---|---|
@@ -71,12 +75,10 @@
 | 3 | `serp` | 検索順位とAI Overviewを取得中 | 20〜30秒 | 順位項目を空にして続行 |
 | 4 | `psi` | 表示速度を計測中 | 30〜45秒 | 表示速度の配点を0点にして続行 |
 | 5 | `competitors` | 競合サイトを分析中 | 10〜15秒 | 競合セクションを非表示にして続行 |
-| 6 | `backlinks` | 被リンクを調査中 | 5〜10秒 | 権威性カテゴリを「未計測」として総合から除外 |
-| 7 | `score` / `narrative` | スコア算出・要約生成 | 20〜30秒 | 要約はテンプレート文にフォールバック |
+| 6 | `score` / `narrative` | スコア算出・要約生成 | 20〜30秒 | アドバイス文はテンプレート文にフォールバック |
 
-工程3（serp）と工程4（psi）は並行実行する。工程6（backlinks）は自社＋競合3社への
-4リクエストが必要で、競合ドメインは工程5（competitors＝自社SERP結果からの抽出）の
-出力に依存するため、実行順は `serp/psi 並行 → competitors → backlinks` となる。
+工程3（serp）と工程4（psi）は並行実行する。工程5（competitors）は自社SERP結果からの
+抽出に依存するため、実行順は `serp/psi 並行 → competitors` となる。
 支配項は工程4（PageSpeed Insights の実測時間、短縮不可）。
 
 ### 部分成功の実装方針
@@ -94,7 +96,7 @@
 | `cache` | key / value(JSON) / expires_at |
 | `excluded_domains` | domain / reason / created_by |
 
-`cache` のキー規約：`serp:{device}:{gl}:{keyword}` / `crawl:{url}` / `psi:{strategy}:{url}` / `backlinks:{domain}`
+`cache` のキー規約：`serp:{device}:{gl}:{keyword}` / `crawl:{url}` / `psi:{strategy}:{url}`
 
 ## 6. エンドポイント
 
