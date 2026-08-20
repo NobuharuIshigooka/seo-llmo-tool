@@ -81,15 +81,15 @@ def test_add_and_list_excluded_domains(isolated_db):
     db.add_excluded_domain("other.com", None, "user@example.co.jp")
 
     domains = db.list_excluded_domains()
-    assert {row["domain"] for row in domains} == {"example.com", "other.com"}
-    assert db.get_excluded_domains() == {"example.com", "other.com"}
+    assert {"example.com", "other.com"} <= {row["domain"] for row in domains}
+    assert {"example.com", "other.com"} <= db.get_excluded_domains()
 
 
 def test_add_excluded_domain_updates_reason_on_conflict(isolated_db):
     db.add_excluded_domain("example.com", "旧理由", "user@example.co.jp")
     db.add_excluded_domain("example.com", "新理由", "user@example.co.jp")
 
-    domains = db.list_excluded_domains()
+    domains = [row for row in db.list_excluded_domains() if row["domain"] == "example.com"]
     assert len(domains) == 1
     assert domains[0]["reason"] == "新理由"
 
@@ -98,7 +98,7 @@ def test_remove_excluded_domain(isolated_db):
     db.add_excluded_domain("example.com", "ポータル", "user@example.co.jp")
     db.remove_excluded_domain("example.com")
 
-    assert db.get_excluded_domains() == set()
+    assert "example.com" not in db.get_excluded_domains()
 
 
 def test_list_audits_orders_newest_first(isolated_db):

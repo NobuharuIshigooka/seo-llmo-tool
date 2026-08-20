@@ -130,7 +130,7 @@ def test_excluded_domains_crud_via_api(client):
     assert delete_resp.status_code == 200
 
     list_resp_after = client.get("/api/excluded-domains", cookies=_auth_cookie())
-    assert list_resp_after.json()["domains"] == []
+    assert not any(d["domain"] == "example.com" for d in list_resp_after.json()["domains"])
 
 
 def test_excluded_domains_page_requires_auth(client):

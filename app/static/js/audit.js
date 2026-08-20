@@ -424,4 +424,11 @@
       showFatalError(err.message);
     }
   });
+
+  document.getElementById("back-to-input-btn").addEventListener("click", () => {
+    form.reset();
+    urlError.textContent = "";
+    submitBtn.disabled = false;
+    showView(viewInput);
+  });
 })();

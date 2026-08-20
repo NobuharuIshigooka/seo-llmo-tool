@@ -44,6 +44,22 @@ CREATE TABLE IF NOT EXISTS excluded_domains (
 );
 """
 
+# docs/requirements.md 4.5「除外リストの初期値」。ドメインが一意に特定できるもののみ登録する
+# （「求人媒体各社」「まとめ系メディア」は個別サイト名の指定がないため対象外。管理画面から追加する）。
+_SEED_EXCLUDED_DOMAINS: list[tuple[str, str]] = [
+    ("tabelog.com", "ポータルサイト（初期リスト）"),
+    ("hotpepper.jp", "ポータルサイト（初期リスト）"),
+    ("ekiten.jp", "ポータルサイト（初期リスト）"),
+    ("gnavi.co.jp", "ポータルサイト（初期リスト）"),
+    ("ja.wikipedia.org", "比較対象として不適切（初期リスト）"),
+    ("wikipedia.org", "比較対象として不適切（初期リスト）"),
+    ("amazon.co.jp", "ポータルサイト（初期リスト）"),
+    ("rakuten.co.jp", "ポータルサイト（初期リスト）"),
+    ("shopping.yahoo.co.jp", "ポータルサイト（初期リスト）"),
+]
+
+_SEED_USER_EMAIL = "system@internal"
+
 
 def init_db(db_path: str | None = None) -> None:
     path = Path(db_path or settings.db_path)
@@ -51,6 +67,27 @@ def init_db(db_path: str | None = None) -> None:
     with get_connection(str(path)) as conn:
         conn.executescript(SCHEMA)
         conn.commit()
+        _seed_excluded_domains(conn)
+
+
+def _seed_excluded_domains(conn: sqlite3.Connection) -> None:
+    """excluded_domains が空の場合のみ、requirements.md の初期リストを投入する（初回起動時のみ）。"""
+    count = conn.execute("SELECT COUNT(*) AS count FROM excluded_domains").fetchone()["count"]
+    if count > 0:
+        return
+
+    conn.execute(
+        "INSERT INTO users(email, name) VALUES (?, ?) ON CONFLICT(email) DO NOTHING",
+        (_SEED_USER_EMAIL, "システム（初期除外リスト）"),
+    )
+    conn.executemany(
+        """
+        INSERT INTO excluded_domains(domain, reason, created_by) VALUES (?, ?, ?)
+        ON CONFLICT(domain) DO NOTHING
+        """,
+        [(domain, reason, _SEED_USER_EMAIL) for domain, reason in _SEED_EXCLUDED_DOMAINS],
+    )
+    conn.commit()
 
 
 def get_excluded_domains() -> set[str]:
