@@ -233,7 +233,14 @@ CLAUDE.md の実装状況チェックリスト（工程1〜6）を作業単位�
         --update-env-vars="ALLOWED_EMAILS=addr1@example.com,addr2@example.com"
       ```
     - `ALLOWED_HD` は使わない方針（個別メール許可を選択）
-  - [ ] **次回はここから再開**：ブラウザで実際にログイン・診断1件を実走確認
+  - [x] ブラウザで実際にログイン・診断1件を実走確認（2026-08-20）
+    - `ipi.dai2.ishigouoka.20260801@gmail.com` でログイン時に一度Google側で
+      `accounts.google.com/signin/oauth/consent` が「400. That's an error.（malformed request）」を返す事象が発生。
+      Cloud Runのアクセスログには`/auth/login`・`/auth/callback`いずれも記録がなく、
+      リクエストがアプリに到達する前にGoogle側の内部セッション状態（同一ブラウザで複数回ログイン試行した際の
+      混線と推測）で弾かれていたと判断。アプリ・`redirect_uri`生成ロジック側の実装に問題は見当たらなかった
+      （`app/auth.py`の`/auth/login`が生成する認可URLを直接確認し、`redirect_uri`・`client_id`とも正しい値だった）
+    - シークレットウィンドウで開き直したところ解消。ログイン→診断起票まで問題なく完了
 - [x] Cloud Storage への SQLite 日次バックアップ（2026-08-17）
   - `POST /internal/backup`（`app/main.py`・`app/backup.py`）をCloud Schedulerから日次で呼ぶ方式で実装（ユーザー承認済み）
   - 認証は共有シークレットヘッダー `X-Backup-Secret`（環境変数 `BACKUP_SECRET`、ユーザー承認済み）。バケットは `BACKUP_GCS_BUCKET`
