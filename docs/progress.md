@@ -543,6 +543,10 @@ Cloud RunのSQLiteは再デプロイ・コンテナ再起動のたびに揮発�
 文字列のみ変更した。テストデータ内のラベル文字列（`tests/test_scoring.py`・
 `tests/test_report_and_admin.py`）も実態に合わせて更新。全100件パス。
 
+上記4件（ヘッダータイトル・MAX_KEYWORDS・カテゴリ別アドバイス位置・LLMO表示名）はコミット
+`227c9bc`にまとめ、2026-08-21にCloud Buildでビルド（image digest `sha256:b2f7c968...`）・
+`gcloud run deploy`で本番反映済み（revision `seo-llmo-tool-00019-bk6`、100%トラフィック）。
+
 ---
 
 ## 更新ルール
