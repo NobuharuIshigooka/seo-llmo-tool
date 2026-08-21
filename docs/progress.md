@@ -517,6 +517,8 @@ Cloud RunのSQLiteは再デプロイ・コンテナ再起動のたびに揮発�
 - テスト：`tests/test_llm.py`のキャッシュ関連テスト3件を新シグネチャに合わせて2件に統合。全100件パス
 - Playwrightで`report.html`のレンダリング結果を確認済み（実測値を根拠にした具体的な文章が
   各カテゴリの下に表示されることを確認）
+- コミット`e1b50a4`にまとめ、2026-08-21にCloud Buildでビルド（image digest `sha256:0d1dbfad...`）・
+  `gcloud run deploy`で本番反映済み（revision `seo-llmo-tool-00018-qmt`、100%トラフィック）
 
 ---
 
