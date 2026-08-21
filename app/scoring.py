@@ -106,6 +106,7 @@ class CategoryScore:
     weight: int
     measured: bool = True
     items: list["ScoreItem"] = field(default_factory=list)
+    advice: str = ""  # カテゴリ別の抽象アドバイス（pipeline.py が診断完了後に付与）
 
 
 @dataclass
@@ -149,9 +150,9 @@ def _ratio_score(value: float, full_value: float, max_points: float) -> float:
 
 def _speed_score(psi: PsiResult | None, max_points: float) -> tuple[float, str]:
     if psi is None or psi.performance_score is None:
-        return 0.0, "PageSpeed Insights 取得失敗のため0点"
+        return 0.0, "表示速度の計測に失敗したため0点"
     score = psi.performance_score * max_points
-    return score, f"PageSpeedスコア {round(psi.performance_score * 100)}／100"
+    return score, f"表示速度スコア {round(psi.performance_score * 100)}／100"
 
 
 def score_technical_seo(page: CrawlResult, psi_mobile: PsiResult | None, psi_desktop: PsiResult | None) -> CategoryScore:
@@ -349,6 +350,13 @@ def _band_of(total_score: float) -> str:
         if total_score >= threshold:
             return band
     return BAND_DEFAULT
+
+
+def category_band(category: CategoryScore) -> str:
+    """カテゴリの達成率（score/weight）を総合スコアと同じ閾値でバンド判定する。"""
+    if not category.measured or category.weight <= 0:
+        return BAND_DEFAULT
+    return _band_of(category.score / category.weight * 100)
 
 
 def compute_total_score(categories: list[CategoryScore]) -> tuple[int, str]:

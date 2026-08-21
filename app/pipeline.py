@@ -223,11 +223,19 @@ async def _run_score_and_narrative(
 
     weak_points = [imp.label for imp in score_result.improvements]
 
-    # llm.improvement_advice() は失敗時に自前でテンプレート文へフォールバックするため例外は送出しない
-    advice, (comparison, explanation) = await asyncio.gather(
+    # llm.improvement_advice() / llm.category_advice() は失敗時に自前でテンプレート文へ
+    # フォールバックするため例外は送出しない。未計測カテゴリはアドバイス自体が不自然なため対象外。
+    measured_categories = [c for c in score_result.categories if c.measured]
+    category_advice_tasks = [
+        llm.category_advice(c.label, scoring.category_band(c)) for c in measured_categories
+    ]
+    advice, category_advices, (comparison, explanation) = await asyncio.gather(
         llm.improvement_advice(score_result.total_score, score_result.band, weak_points),
+        asyncio.gather(*category_advice_tasks),
         _run_competitor_comparison(page, own_domain, competitor_domains, warnings),
     )
+    for category, category_advice_text in zip(measured_categories, category_advices):
+        category.advice = category_advice_text
 
     job.emit_progress("score", STAGE_LABELS["score"], done=True)
     return score_result, advice, comparison, explanation
@@ -258,6 +266,7 @@ def _score_result_to_dict(score_result: scoring.ScoreResult) -> dict:
                 "score": round(c.score, 1),
                 "weight": c.weight,
                 "measured": c.measured,
+                "advice": c.advice,
                 "items": [
                     {
                         "label": i.label,

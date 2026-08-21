@@ -45,13 +45,19 @@
       <div class="top-row">
         <div class="card total-score">
           <p class="section-title">総合スコア</p>
-          <span class="value tabular-nums">{{ result.score.total_score }}</span>
-          <span class="max">/ 100</span>
-          <div class="score-track">
-            <div class="fill" style="width:{{ result.score.total_score }}%"></div>
-            <div class="marker" style="left:calc({{ result.score.total_score }}% - 1.5px)"></div>
+          <div class="score-donut-wrap">
+            <div class="score-donut" style="background:{{ score_donut_gradient }};">
+              <div class="score-donut-hole">
+                <span class="value tabular-nums">{{ result.score.total_score }}</span>
+                <span class="max">/ 100</span>
+              </div>
+            </div>
+            <ul class="score-donut-legend">
+              {% for seg in score_donut_segments %}
+              <li><span class="dot" style="background:{{ seg.color }}"></span>{{ seg.label }}<span class="pts tabular-nums">{{ seg.points }}</span></li>
+              {% endfor %}
+            </ul>
           </div>
-          <div class="score-ticks"><span>0</span><span>40</span><span>60</span><span>80</span><span>100</span></div>
           <span class="band-badge {{ result.score.band }}">{{ band_labels.get(result.score.band, result.score.band) }}</span>
         </div>
 
@@ -71,6 +77,9 @@
           </span>
           <span class="score tabular-nums">{{ "%.1f"|format(cat.score) ~ "/" ~ cat.weight if cat.measured else "未計測" }}</span>
         </div>
+        {% if cat.advice %}
+        <p class="category-advice">{{ cat.advice }}</p>
+        {% endif %}
         <div class="category-detail">
           {% for item in cat["items"] %}
           <div class="item-row">

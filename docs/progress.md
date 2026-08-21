@@ -437,6 +437,62 @@ Cloud RunのSQLiteは再デプロイ・コンテナ再起動のたびに揮発�
 かつ自社より上位に表示された回数が多い順」に改訂し、`app/pipeline.py`の`_pick_competitors()`に
 `COMPETITOR_CANDIDATE_MAX_RANK = 5`の足切りを追加（6位以降のドメインは候補にしない）。
 「自社より上位」という既存の軸自体は維持。`tests/test_pipeline.py`に境界値テストを追加、全93件パス。
+2026-08-21にCloud Buildでビルド（image digest `sha256:cfccf620...`）・`gcloud run deploy`で本番反映済み
+（revision `seo-llmo-tool-00016-94m`、100%トラフィック）。ユーザーが実際の画面で確認予定。
+
+### 2026-08-21：表示速度スコアの根拠文言から「PageSpeed」表記を削除（ユーザー指摘）
+
+商談の場で外部ツール名（PageSpeed Insights）を見せたくないという要望。採点ロジック・PSI連携自体は
+変更せず、`app/scoring.py`の`_speed_score()`が返すevidence文言のみ「PageSpeedスコア」→「表示速度スコア」、
+失敗時の文言も「PageSpeed Insights 取得失敗のため0点」→「表示速度の計測に失敗したため0点」に変更。
+`docs/scoring.md`表示要件に「外部ツール名を出さない」方針を追記。
+
+### 2026-08-21：カテゴリ別スコアに抽象的な一言アドバイスを追加（ユーザー要望）
+
+「カテゴリー別スコア」の各行の下に、そのカテゴリの改善余地を抽象的なニュアンスで一言添える機能を追加。
+「〜すればもっと閲覧数が増える」「〜すれば改善の余地はあります」のような、具体的な施策名・数値には
+一切触れない文言（実測値ベースの根拠は既存の折りたたみ内訳に任せる）。
+
+- `app/scoring.py`：`CategoryScore`に`advice`フィールドを追加。カテゴリの達成率（score/weight）を
+  総合スコアと同じ4段階バンド閾値で判定する`category_band()`を新設
+- `app/clients/llm.py`：`category_advice(category_label, band)`を追加。Claude APIで生成し、
+  カテゴリ名×バンド単位でキャッシュ（`llm:category_advice:{label}:{band}`、TTL30日。サイト非依存の
+  文言のためキャッシュヒット率が高い）。失敗時は固定文にフォールバックし、フォールバック結果は
+  キャッシュしない（`docs/api-integrations.md`5章「失敗した結果はキャッシュしない」に準拠）
+- `app/pipeline.py`：`_run_score_and_narrative()`で計測済みカテゴリごとに`category_advice()`を並行実行。
+  未計測カテゴリはアドバイス自体が不自然なため対象外
+- `app/templates/report.html`・`app/static/js/audit.js`：カテゴリ行の直下・折りたたみ内訳の外側に
+  `.category-advice`として常時表示
+- `docs/requirements.md` 4.4.4・`docs/frontend.md` 5.5・`docs/api-integrations.md` 5章を追随して更新
+- テスト：`tests/test_llm.py`（成功時キャッシュ・キャッシュヒット・失敗時フォールバック＆非キャッシュ）、
+  `tests/test_scoring.py`（`category_band`の閾値・未計測時）、`tests/test_pipeline.py`（既存3件の統合テストに
+  `category_advice`モックを追加）。全98件パス
+
+### 2026-08-21：総合スコアをドーナツ型円グラフに変更（ユーザー要望）
+
+「総合スコアのグラフを円グラフで、各カテゴリが分かるように色分けしたい」という要望。
+`docs/frontend.md` 5.4節は旧仕様で「円形ゲージ（ドーナツ型）を使わない。横方向の目盛り付きバーとする」
+（斜めから見たとき円は歪むが横バーは歪まないため）と明確に禁止していたが、ユーザー判断で撤回し改訂。
+併せてCLAUDE.md「スコアが低いカテゴリのバーを赤くしない」原則との違い（今回の色分けは良し悪しではなく
+カテゴリの区別のためであり、バンド色とは別系統）をユーザーに確認済み。
+
+- `app/static/css/main.css`：カテゴリ区別用の3色を追加（`--category-technical-seo`＝青、
+  `--category-content-seo`＝紫、`--category-llmo`＝橙。評価バンド色（緑・黄・オレンジ・赤）と
+  混同しないよう別系統の配色にした）。旧`.score-track`/`.score-ticks`を`.score-donut*`に置き換え
+- `app/report_view.py`：`build_score_donut_segments()`を新設。各カテゴリの獲得点数（%ではなく
+  素点。3カテゴリ合計＋未達成分＝360度＝100点）を`conic-gradient()`用の累積%区間に変換し、
+  完成済みのgradient文字列も返す。`build_report_context()`の戻り値に追加
+- `app/templates/report.html`：total-scoreカードを円グラフ＋中央の穴（総合スコア数値）＋
+  右側の凡例（色・カテゴリ名・獲得点数）に置き換え
+- `app/templates/index.html`・`app/static/js/audit.js`：アプリ内リアルタイム結果表示も同様に変更。
+  `renderTotalScore()`が`report_view.py`と同じロジックをJS側で再実装（画面・共有URL・PDFの3箇所で
+  同一の計算結果になることをそれぞれ確認）
+- `docs/frontend.md`：冒頭ステータス注記・3章配色・5.4節を改訂（円形ゲージ禁止の原則を撤回）
+- テスト：`tests/test_report_and_admin.py`に`build_score_donut_segments()`のユニットテスト3件
+  （合計が総合スコアと一致・未計測とゼロ点の除外・全未計測時）を追加。全101件パス
+- Playwrightで`report.html`のレンダリング結果を確認済み（円グラフ・凡例・中央の総合スコア数値が
+  期待通り表示されることを確認）。`index.html`側はDOM要素の存在のみ確認（`audit.js`はIIFEのため
+  ブラウザ上で直接関数を呼べず、レンダリング結果の目視確認は`report.html`と共通のCSS・DOM構造で代替）
 
 ---
 

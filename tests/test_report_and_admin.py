@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from app import db, main
 from app.auth import SESSION_COOKIE, create_session_cookie
 from app.jobs import Job
+from app.report_view import build_score_donut_segments
 
 
 @pytest.fixture
@@ -136,3 +137,42 @@ def test_excluded_domains_crud_via_api(client):
 def test_excluded_domains_page_requires_auth(client):
     resp = client.get("/admin/excluded-domains", follow_redirects=False)
     assert resp.status_code in (302, 401, 307)
+
+
+def test_build_score_donut_segments_sums_to_total_score():
+    categories = [
+        {"key": "technical_seo", "label": "テクニカルSEO", "score": 18.3, "weight": 30, "measured": True},
+        {"key": "content_seo", "label": "コンテンツSEO", "score": 15.0, "weight": 30, "measured": True},
+        {"key": "llmo", "label": "LLMO対応度", "score": 8.8, "weight": 25, "measured": True},
+    ]
+    segments, gradient = build_score_donut_segments(categories)
+
+    assert [s["points"] for s in segments] == [18.3, 15.0, 8.8]
+    assert segments[0]["start_pct"] == 0
+    assert segments[0]["end_pct"] == 18.3
+    assert segments[1]["start_pct"] == 18.3
+    assert segments[2]["end_pct"] == pytest.approx(42.1)
+    assert gradient.startswith("conic-gradient(")
+    assert "var(--mono-100) 42.1% 100%" in gradient
+
+
+def test_build_score_donut_segments_skips_unmeasured_and_zero_score():
+    categories = [
+        {"key": "technical_seo", "label": "テクニカルSEO", "score": 20.0, "weight": 30, "measured": True},
+        {"key": "content_seo", "label": "コンテンツSEO", "score": 0, "weight": 30, "measured": True},
+        {"key": "llmo", "label": "LLMO対応度", "score": 0, "weight": 25, "measured": False},
+    ]
+    segments, gradient = build_score_donut_segments(categories)
+
+    assert [s["key"] for s in segments] == ["technical_seo"]
+    assert "var(--mono-100) 20.0% 100%" in gradient
+
+
+def test_build_score_donut_segments_handles_all_unmeasured():
+    categories = [
+        {"key": "technical_seo", "label": "テクニカルSEO", "score": 0, "weight": 30, "measured": False},
+    ]
+    segments, gradient = build_score_donut_segments(categories)
+
+    assert segments == []
+    assert gradient == "conic-gradient(var(--mono-100) 0.0% 100%)"

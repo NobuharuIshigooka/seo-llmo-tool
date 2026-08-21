@@ -201,10 +201,36 @@
     wrap.innerHTML = `<div class="warning-banner"><strong>一部の項目が取得できませんでした</strong><ul>${items}</ul></div>`;
   }
 
+  // 総合スコアのドーナツグラフの配色。scoring.py の category key と対応（app/report_view.py と同じ表）
+  const CATEGORY_COLORS = {
+    technical_seo: "var(--category-technical-seo)",
+    content_seo: "var(--category-content-seo)",
+    llmo: "var(--category-llmo)",
+  };
+  const CATEGORY_UNMEASURED_COLOR = "var(--mono-100)";
+
   function renderTotalScore(score) {
     document.getElementById("total-score-value").textContent = score.total_score;
-    document.getElementById("score-fill").style.width = `${score.total_score}%`;
-    document.getElementById("score-marker").style.left = `calc(${score.total_score}% - 1.5px)`;
+
+    let cursor = 0;
+    const stops = [];
+    const legendItems = [];
+    (score.categories || []).forEach((cat) => {
+      const points = cat.measured ? cat.score : 0;
+      if (points <= 0) return;
+      const start = cursor;
+      cursor += points;
+      const color = CATEGORY_COLORS[cat.key] || CATEGORY_UNMEASURED_COLOR;
+      stops.push(`${color} ${start}% ${cursor}%`);
+      legendItems.push(
+        `<li><span class="dot" style="background:${color}"></span>${escapeHtml(cat.label)}<span class="pts tabular-nums">${points.toFixed(1)}</span></li>`
+      );
+    });
+    stops.push(`var(--mono-100) ${cursor}% 100%`);
+
+    document.getElementById("score-donut").style.background = `conic-gradient(${stops.join(", ")})`;
+    document.getElementById("score-donut-legend").innerHTML = legendItems.join("");
+
     const badge = document.getElementById("band-badge");
     badge.textContent = bandLabel(score.band);
     badge.className = `band-badge ${score.band}`;
@@ -238,6 +264,12 @@
       row.addEventListener("click", () => detail.classList.toggle("hidden"));
 
       container.appendChild(row);
+      if (cat.advice) {
+        const advice = document.createElement("p");
+        advice.className = "category-advice";
+        advice.textContent = cat.advice;
+        container.appendChild(advice);
+      }
       container.appendChild(detail);
     });
   }

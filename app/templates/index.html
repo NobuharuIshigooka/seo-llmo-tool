@@ -72,13 +72,15 @@
       <div class="top-row">
         <div class="card total-score">
           <p class="section-title">総合スコア</p>
-          <span class="value tabular-nums" id="total-score-value"></span>
-          <span class="max">/ 100</span>
-          <div class="score-track">
-            <div class="fill" id="score-fill"></div>
-            <div class="marker" id="score-marker"></div>
+          <div class="score-donut-wrap">
+            <div class="score-donut" id="score-donut">
+              <div class="score-donut-hole">
+                <span class="value tabular-nums" id="total-score-value"></span>
+                <span class="max">/ 100</span>
+              </div>
+            </div>
+            <ul class="score-donut-legend" id="score-donut-legend"></ul>
           </div>
-          <div class="score-ticks"><span>0</span><span>40</span><span>60</span><span>80</span><span>100</span></div>
           <span class="band-badge" id="band-badge"></span>
         </div>
 

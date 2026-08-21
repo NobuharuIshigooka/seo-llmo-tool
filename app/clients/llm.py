@@ -5,6 +5,7 @@ from collections import Counter
 from anthropic import AsyncAnthropic
 from fugashi import Tagger
 
+from app import cache
 from app.clients.crawler import CrawlResult
 from app.config import settings
 
@@ -213,3 +214,67 @@ async def improvement_advice(total_score: int, band: str, weak_points: list[str]
         return text
     except Exception:
         return _fallback_improvement_advice(total_score, band, weak_points)
+
+
+CATEGORY_ADVICE_CACHE_TTL = 30 * 24 * 3600  # カテゴリ名×バンドのみに依存し内容がサイト非依存のため長め（30日）
+
+_CATEGORY_ADVICE_TONE = {
+    "good": "すでに良好な状態であることを踏まえつつ、さらに伸ばせる余地がある旨を前向きに伝えてください。",
+    "fair": "基礎はできているものの、もう一段の改善で成果が伸びる旨を前向きに伝えてください。",
+    "weak": "改善の余地がある旨を、責めるのではなく淡々と伝えてください。",
+    "poor": "改善の余地が大きい旨を、責めるのではなく淡々と伝えてください。",
+}
+
+
+def _fallback_category_advice(band: str) -> str:
+    return {
+        "good": "さらに強化すればもっと閲覧数が増える可能性があります。",
+        "fair": "改善すればもっと閲覧数が増える見込みがあります。",
+        "weak": "改善の余地はあります。",
+        "poor": "改善の余地は大きくあります。",
+    }.get(band, "改善の余地はあります。")
+
+
+async def category_advice(category_label: str, band: str) -> str:
+    """カテゴリ別スコアの下に添える、抽象的な一言アドバイス。
+
+    具体的な施策名や数値は出さず、「〜すればもっと閲覧数が増える」
+    「〜すれば改善の余地はあります」のような抽象的なニュアンスの一文のみを返す。
+    サイト個別の実測値には触れないため、カテゴリ名×評価バンド単位でキャッシュする。
+    """
+    cache_key = f"llm:category_advice:{category_label}:{band}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    tone = _CATEGORY_ADVICE_TONE.get(band, _CATEGORY_ADVICE_TONE["weak"])
+    prompt = f"""Webサイトの診断結果画面で、カテゴリ別スコアの下に添える一言アドバイスを作成してください。
+
+カテゴリ名: {category_label}
+評価: {band}（good=良好, fair=標準, weak=要改善, poor=急ぎ改善）
+
+{tone}
+
+制約:
+- 具体的な施策名・数値・実測値には一切触れないでください（実測値は本文中の別項目で個別に示すため不要です）。
+- 「〜すればもっと閲覧数が増えます」「〜すれば改善の余地はあります」のような、抽象的でニュアンスのみの一文にしてください。
+- 1文・30〜40字程度。日本語の自然な文章にしてください。
+- 出力は文章のみとし、前置きや記号（#, *, 「」など）は付けないでください。"""
+
+    try:
+        response = await _client().messages.create(
+            model=settings.anthropic_model,
+            max_tokens=128,
+            temperature=0.5,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = response.content[0].text.strip()
+        if not text:
+            raise LlmError("カテゴリアドバイスが空です")
+    except Exception:
+        # 失敗結果はキャッシュしない（docs/api-integrations.md 5章）。一時的なAPI障害を
+        # フォールバック文のまま30日間キャッシュしてしまわないよう、成功時のみ cache.set する。
+        return _fallback_category_advice(band)
+
+    cache.set(cache_key, text, ttl_seconds=CATEGORY_ADVICE_CACHE_TTL)
+    return text

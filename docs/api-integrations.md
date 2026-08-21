@@ -140,6 +140,7 @@ Claude API本体（`extract_keywords()`のプロンプト）にも同じ情報�
 | SERP結果 | 24時間 | `serp:{device}:{gl}:{keyword}` |
 | クロール結果 | 6時間 | `crawl:{url}` |
 | PageSpeed | 12時間 | `psi:{strategy}:{url}` |
+| カテゴリ別アドバイス（Claude API） | 30日 | `llm:category_advice:{category_label}:{band}` |
 
 - 失敗した結果はキャッシュしない
 - 1日の診断上限：30件／人（環境変数 `DAILY_AUDIT_LIMIT`）

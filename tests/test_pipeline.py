@@ -97,6 +97,7 @@ async def test_run_audit_completes_with_partial_failures_and_warnings():
          patch.object(pipeline.psi, "analyze_both", new=AsyncMock(return_value={"mobile": None, "desktop": PsiResult(strategy="desktop", performance_score=0.9)})), \
          patch.object(pipeline.db, "get_excluded_domains", return_value=set()), \
          patch.object(pipeline.llm, "improvement_advice", new=AsyncMock(return_value="アドバイス文です。")), \
+         patch.object(pipeline.llm, "category_advice", new=AsyncMock(return_value="カテゴリアドバイス文です。")), \
          patch.object(pipeline.llm, "explain_competitors", new=AsyncMock(return_value="解説文です。")):
         await pipeline.run_audit(job, "https://example.co.jp/", ["desktop"])
 
@@ -110,6 +111,7 @@ async def test_run_audit_completes_with_partial_failures_and_warnings():
     assert any("PageSpeed Insights（モバイル）" in w for w in result["warnings"])
     assert result["score"]["total_score"] > 0
     assert result["score"]["rubric_version"]
+    assert all(c["advice"] == "カテゴリアドバイス文です。" for c in result["score"]["categories"] if c["measured"])
     assert result["serp_results"] == [
         {"keyword": "キーワード1", "device": "desktop", "rank": 2, "ai_overview_shown": False, "ai_overview_cited": False}
     ]
@@ -126,7 +128,8 @@ async def test_run_audit_continues_when_serp_fails_entirely():
          patch.object(pipeline.serp, "search_all", new=AsyncMock(side_effect=Exception("serp down"))), \
          patch.object(pipeline.psi, "analyze_both", new=AsyncMock(return_value={"mobile": None, "desktop": None})), \
          patch.object(pipeline.db, "get_excluded_domains", return_value=set()), \
-         patch.object(pipeline.llm, "improvement_advice", new=AsyncMock(return_value="アドバイス文です。")):
+         patch.object(pipeline.llm, "improvement_advice", new=AsyncMock(return_value="アドバイス文です。")), \
+         patch.object(pipeline.llm, "category_advice", new=AsyncMock(return_value="カテゴリアドバイス文です。")):
         await pipeline.run_audit(job, "https://example.co.jp/", ["desktop"])
 
     assert job.status == "done"
@@ -146,7 +149,8 @@ async def test_run_audit_skips_llm_keyword_extraction_when_keywords_given():
          patch.object(pipeline.serp, "search_all", new=AsyncMock(return_value=[])), \
          patch.object(pipeline.psi, "analyze_both", new=AsyncMock(return_value={"mobile": None, "desktop": None})), \
          patch.object(pipeline.db, "get_excluded_domains", return_value=set()), \
-         patch.object(pipeline.llm, "improvement_advice", new=AsyncMock(return_value="アドバイス文です。")):
+         patch.object(pipeline.llm, "improvement_advice", new=AsyncMock(return_value="アドバイス文です。")), \
+         patch.object(pipeline.llm, "category_advice", new=AsyncMock(return_value="カテゴリアドバイス文です。")):
         await pipeline.run_audit(job, "https://example.co.jp/", ["desktop"], keywords=["手動キーワード"])
 
     mock_extract.assert_not_called()

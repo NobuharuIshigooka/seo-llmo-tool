@@ -19,6 +19,44 @@ COMPARISON_METRIC_ORDER = [
     "eeat_count",
 ]
 
+# 総合スコアのドーナツグラフ（frontend.md 5.4）のカテゴリ配色。scoring.py の category key に対応
+CATEGORY_COLORS = {
+    "technical_seo": "var(--category-technical-seo)",
+    "content_seo": "var(--category-content-seo)",
+    "llmo": "var(--category-llmo)",
+}
+CATEGORY_UNMEASURED_COLOR = "var(--mono-100)"
+
+
+def build_score_donut_segments(categories: list[dict]) -> tuple[list[dict], str]:
+    """各カテゴリの獲得点数を conic-gradient 用の累積%区間に変換する。
+
+    合計は総合スコア（0〜100）と一致する。未計測カテゴリは0点として灰色の
+    区間を作らない（conic-gradient に0幅の区間を含めても無害だが、見た目上不要なため除外する）。
+    2つ目の戻り値は CSS の conic-gradient() にそのまま渡せる完成済みの引数文字列。
+    """
+    segments = []
+    cursor = 0.0
+    for c in categories:
+        points = c["score"] if c["measured"] else 0.0
+        if points <= 0:
+            continue
+        start = cursor
+        cursor += points
+        segments.append({
+            "key": c["key"],
+            "label": c["label"],
+            "color": CATEGORY_COLORS.get(c["key"], CATEGORY_UNMEASURED_COLOR),
+            "points": round(points, 1),
+            "start_pct": round(start, 4),
+            "end_pct": round(cursor, 4),
+        })
+
+    stops = [f"{s['color']} {s['start_pct']}% {s['end_pct']}%" for s in segments]
+    stops.append(f"{CATEGORY_UNMEASURED_COLOR} {round(cursor, 4)}% 100%")
+    gradient = f"conic-gradient({', '.join(stops)})"
+    return segments, gradient
+
 
 def format_jst(iso_str: str | None) -> str:
     if not iso_str:
@@ -97,6 +135,9 @@ def build_comparison_rows(result: dict) -> tuple[list[dict], list[tuple[str, str
 
 def build_report_context(audit_row: dict, result: dict, base_url: str, is_pdf: bool = False) -> dict:
     comparison_rows, comparison_metric_labels = build_comparison_rows(result)
+    score_donut_segments, score_donut_gradient = build_score_donut_segments(
+        result.get("score", {}).get("categories", [])
+    )
     return {
         "audit": {
             "id": audit_row["id"],
@@ -106,6 +147,8 @@ def build_report_context(audit_row: dict, result: dict, base_url: str, is_pdf: b
         },
         "result": result,
         "band_labels": BAND_LABELS,
+        "score_donut_segments": score_donut_segments,
+        "score_donut_gradient": score_donut_gradient,
         "serp_rows": build_serp_rows(result),
         "comparison_rows": comparison_rows,
         "comparison_metric_labels": comparison_metric_labels,

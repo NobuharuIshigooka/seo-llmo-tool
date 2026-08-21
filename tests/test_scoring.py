@@ -77,6 +77,17 @@ def test_band_thresholds():
     assert scoring._band_of(39) == "poor"
 
 
+def test_category_band_uses_achievement_ratio():
+    assert scoring.category_band(scoring.CategoryScore("k", "l", 24, 30)) == "good"  # 80%
+    assert scoring.category_band(scoring.CategoryScore("k", "l", 18, 30)) == "fair"  # 60%
+    assert scoring.category_band(scoring.CategoryScore("k", "l", 12, 30)) == "weak"  # 40%
+    assert scoring.category_band(scoring.CategoryScore("k", "l", 6, 30)) == "poor"  # 20%
+
+
+def test_category_band_defaults_to_poor_when_unmeasured():
+    assert scoring.category_band(scoring.CategoryScore("k", "l", 0, 25, measured=False)) == "poor"
+
+
 def test_compute_improvements_picks_top3():
     categories = [
         scoring.CategoryScore("technical_seo", "テクニカルSEO", 0, 30, items=[
