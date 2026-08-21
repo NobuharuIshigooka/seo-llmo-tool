@@ -58,6 +58,18 @@ def test_pick_competitors_counts_all_when_own_rank_missing():
     assert result == ["a.co.jp"]
 
 
+def test_pick_competitors_excludes_domains_ranked_below_5th():
+    serp_results = [
+        SerpResult(
+            keyword="k1", device="desktop", rank=None,
+            organic_domains=["a.co.jp", "b.co.jp", "c.co.jp", "d.co.jp", "e.co.jp", "f.co.jp", "example.co.jp"],
+        ),
+    ]
+    result = pipeline._pick_competitors("example.co.jp", serp_results, excluded_domains=set())
+    assert "f.co.jp" not in result
+    assert set(result) == {"a.co.jp", "b.co.jp", "c.co.jp"}  # max_competitors=3 で上位3件のみ
+
+
 async def test_run_audit_emits_error_and_stops_on_crawl_failure():
     job = Job(id="job1", created_by="user@example.co.jp")
     with patch.object(pipeline, "crawl_fetch", new=AsyncMock(side_effect=CrawlError("boom"))):

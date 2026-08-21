@@ -10,6 +10,7 @@
   --line: #D8DADD;
   --paper: #FFFFFF;
   --mist: #F7F7F8;
+  --result-bg: #F3F6FB; /* 診断結果ページの地の色。PDF出力と同じ薄い青系 */
 
   --band-good: #2E7D5B;
   --band-fair: #C08A1E;
@@ -45,6 +46,13 @@ body {
   max-width: 1080px;
   margin: 0 auto;
   padding: 0 24px;
+}
+
+/* 診断結果ページの地の色（PDF出力と同じ薄い青系） */
+#view-result {
+  background: var(--result-bg);
+  padding-top: 24px;
+  padding-bottom: 24px;
 }
 
 /* ヘッダー帯 */

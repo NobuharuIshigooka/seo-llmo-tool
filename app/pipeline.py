@@ -42,16 +42,21 @@ def _domain_of(url: str) -> str:
     return netloc[4:] if netloc.startswith("www.") else netloc
 
 
+COMPETITOR_CANDIDATE_MAX_RANK = 5  # requirements.md 4.5：候補は検索結果1〜5位のみ
+
+
 def _pick_competitors(
     own_domain: str,
     serp_results: list[serp.SerpResult],
     excluded_domains: set[str],
 ) -> list[str]:
-    """自社より上位表示回数が多い順に競合ドメインを最大 max_competitors 件抽出する。"""
+    """検索結果1〜5位に入り、かつ自社より上位表示された回数が多い順に競合ドメインを最大 max_competitors 件抽出する。"""
     counter: Counter[str] = Counter()
     for result in serp_results:
         own_rank = result.rank
         for position, domain in enumerate(result.organic_domains, start=1):
+            if position > COMPETITOR_CANDIDATE_MAX_RANK:
+                break
             if domain == own_domain or domain in excluded_domains or not domain:
                 continue
             if own_rank is None or position < own_rank:

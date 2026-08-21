@@ -430,6 +430,14 @@ Cloud RunのSQLiteは再デプロイ・コンテナ再起動のたびに揮発�
 - ローカル動作確認：`fugashi.Tagger()`がPython 3.13のvenvでインストール・実行できることを確認済み。
   Cloud Run側（`mcr.microsoft.com/playwright/python:v1.48.0-jammy`ベース）でのビルド確認はこの後実施
 
+### 2026-08-21：競合候補の抽出範囲を検索結果1〜5位に限定（ユーザー指摘）
+
+「競合3社との比較」の抽出プールが検索結果20位以内全体だったため、順位の低い無関係なサイトが
+競合候補に混ざりうるという指摘。`docs/requirements.md` 4.5の選定ルールを「検索結果1〜5位に入り、
+かつ自社より上位に表示された回数が多い順」に改訂し、`app/pipeline.py`の`_pick_competitors()`に
+`COMPETITOR_CANDIDATE_MAX_RANK = 5`の足切りを追加（6位以降のドメインは候補にしない）。
+「自社より上位」という既存の軸自体は維持。`tests/test_pipeline.py`に境界値テストを追加、全93件パス。
+
 ---
 
 ## 更新ルール
