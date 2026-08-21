@@ -32,7 +32,7 @@ class Settings:
     psi_api_key: str = os.getenv("PSI_API_KEY", "")
 
     # 動作設定
-    max_keywords: int = int(os.getenv("MAX_KEYWORDS", "8"))
+    max_keywords: int = int(os.getenv("MAX_KEYWORDS", "10"))
     max_competitors: int = int(os.getenv("MAX_COMPETITORS", "3"))
     daily_audit_limit: int = int(os.getenv("DAILY_AUDIT_LIMIT", "30"))
     serp_concurrency: int = int(os.getenv("SERP_CONCURRENCY", "4"))

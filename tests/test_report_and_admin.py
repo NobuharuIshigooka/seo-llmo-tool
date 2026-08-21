@@ -143,7 +143,7 @@ def test_build_score_donut_segments_sums_to_total_score():
     categories = [
         {"key": "technical_seo", "label": "テクニカルSEO", "score": 18.3, "weight": 30, "measured": True},
         {"key": "content_seo", "label": "コンテンツSEO", "score": 15.0, "weight": 30, "measured": True},
-        {"key": "llmo", "label": "LLMO対応度", "score": 8.8, "weight": 25, "measured": True},
+        {"key": "llmo", "label": "AI検索対応度", "score": 8.8, "weight": 25, "measured": True},
     ]
     segments, gradient = build_score_donut_segments(categories)
 
@@ -160,7 +160,7 @@ def test_build_score_donut_segments_skips_unmeasured_and_zero_score():
     categories = [
         {"key": "technical_seo", "label": "テクニカルSEO", "score": 20.0, "weight": 30, "measured": True},
         {"key": "content_seo", "label": "コンテンツSEO", "score": 0, "weight": 30, "measured": True},
-        {"key": "llmo", "label": "LLMO対応度", "score": 0, "weight": 25, "measured": False},
+        {"key": "llmo", "label": "AI検索対応度", "score": 0, "weight": 25, "measured": False},
     ]
     segments, gradient = build_score_donut_segments(categories)
 

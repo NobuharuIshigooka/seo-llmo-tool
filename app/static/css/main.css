@@ -431,24 +431,25 @@ button:focus-visible {
   margin: 0;
 }
 
+.category-group {
+  border-bottom: 1px solid var(--line);
+}
+
+.category-group:last-of-type {
+  border-bottom: none;
+}
+
 .category-row {
   display: flex;
   align-items: center;
   gap: 16px;
   padding: 12px 0;
-  border-bottom: 1px solid var(--line);
   cursor: pointer;
   background: none;
-  border-left: none;
-  border-right: none;
-  border-top: none;
+  border: none;
   width: 100%;
   text-align: left;
   font-family: var(--font);
-}
-
-.category-row:last-of-type {
-  border-bottom: none;
 }
 
 .category-row .name {

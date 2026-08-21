@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 
-{% block title %}{{ audit.domain }}の診断結果 - SEO/LLMO診断ツール{% endblock %}
+{% block title %}{{ audit.domain }}の診断結果 - SEO/AI検索（LLMO）診断ツール{% endblock %}
 
 {% block body %}
 <header class="app-header">
   <div class="container">
-    <p class="app-title">SEO/LLMO診断ツール</p>
+    <p class="app-title">SEO/AI検索（LLMO）診断ツール</p>
     {% if not is_pdf %}
     <nav class="app-nav">
       <a href="/">診断入力に戻る</a>
@@ -70,23 +70,25 @@
       <div class="card">
         <p class="section-title">カテゴリ別スコア</p>
         {% for cat in result.score.categories %}
-        <div class="category-row" style="cursor:default;">
-          <span class="name">{{ cat.label }}</span>
-          <span class="bar-track {{ '' if cat.measured else 'unmeasured' }}">
-            <span class="fill" style="width:{{ ((cat.score / cat.weight * 100) if cat.measured else 0) | round | int }}%"></span>
-          </span>
-          <span class="score tabular-nums">{{ "%.1f"|format(cat.score) ~ "/" ~ cat.weight if cat.measured else "未計測" }}</span>
-        </div>
-        {% if cat.advice %}
-        <p class="category-advice">{{ cat.advice }}</p>
-        {% endif %}
-        <div class="category-detail">
-          {% for item in cat["items"] %}
-          <div class="item-row">
-            <span class="item-name">{{ item.label }}</span>
-            <span>{{ item.evidence }} ・ {{ "%.1f"|format(item.score) }}/{{ item.max_score }}</span>
+        <div class="category-group">
+          <div class="category-row" style="cursor:default;">
+            <span class="name">{{ cat.label }}</span>
+            <span class="bar-track {{ '' if cat.measured else 'unmeasured' }}">
+              <span class="fill" style="width:{{ ((cat.score / cat.weight * 100) if cat.measured else 0) | round | int }}%"></span>
+            </span>
+            <span class="score tabular-nums">{{ "%.1f"|format(cat.score) ~ "/" ~ cat.weight if cat.measured else "未計測" }}</span>
           </div>
-          {% endfor %}
+          {% if cat.advice %}
+          <p class="category-advice">{{ cat.advice }}</p>
+          {% endif %}
+          <div class="category-detail">
+            {% for item in cat["items"] %}
+            <div class="item-row">
+              <span class="item-name">{{ item.label }}</span>
+              <span>{{ item.evidence }} ・ {{ "%.1f"|format(item.score) }}/{{ item.max_score }}</span>
+            </div>
+            {% endfor %}
+          </div>
         </div>
         {% endfor %}
       </div>

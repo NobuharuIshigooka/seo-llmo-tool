@@ -241,6 +241,9 @@
     container.innerHTML = "";
 
     categories.forEach((cat, index) => {
+      const group = document.createElement("div");
+      group.className = "category-group";
+
       const row = document.createElement("button");
       row.type = "button";
       row.className = "category-row";
@@ -263,14 +266,15 @@
 
       row.addEventListener("click", () => detail.classList.toggle("hidden"));
 
-      container.appendChild(row);
+      group.appendChild(row);
       if (cat.advice) {
         const advice = document.createElement("p");
         advice.className = "category-advice";
         advice.textContent = cat.advice;
-        container.appendChild(advice);
+        group.appendChild(advice);
       }
-      container.appendChild(detail);
+      group.appendChild(detail);
+      container.appendChild(group);
     });
   }
 

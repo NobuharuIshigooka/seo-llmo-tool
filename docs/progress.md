@@ -520,6 +520,29 @@ Cloud RunのSQLiteは再デプロイ・コンテナ再起動のたびに揮発�
 - コミット`e1b50a4`にまとめ、2026-08-21にCloud Buildでビルド（image digest `sha256:0d1dbfad...`）・
   `gcloud run deploy`で本番反映済み（revision `seo-llmo-tool-00018-qmt`、100%トラフィック）
 
+### 2026-08-21：UI修正3件（ヘッダータイトル・キーワード数・カテゴリ別アドバイス位置）
+
+- ヘッダータイトルを全画面共通で「SEO/LLMO診断ツール」→「SEO/AI検索（LLMO）診断ツール」に変更
+  （`base.html`の`<title>`・各テンプレートの`app-title`、計5ファイル）
+- `MAX_KEYWORDS`を8→10に変更（`app/config.py`のデフォルト値・`.env`・`.env.example`、
+  および`docs/deployment.md`・`docs/api-integrations.md`・`docs/requirements.md`・`docs/frontend.md`の
+  記載値を追随して更新）。SerpApi消費リクエスト数が1診断あたり約25%増（8〜16→10〜20）になる点は
+  事前にユーザーへ確認済み（残枠に問題なしとの回答）
+- カテゴリ別アドバイスの表示位置をユーザー指摘により修正。従来は「カテゴリ行（下線あり）→
+  アドバイス文→折りたたみ内訳」の順で、区切り線がアドバイス文の上（カテゴリ行の直下）にあったため、
+  アドバイス文が次のカテゴリの区画に近く見えていた。行・アドバイス文・内訳を`.category-group`で
+  ひとまとめにし、区切り線を`.category-group`の下端に移動（`app/static/js/audit.js`・
+  `app/templates/report.html`・`app/static/css/main.css`）。「行→アドバイス文→区切り線→内訳」の順になる
+- Playwrightで`report.html`のレンダリング結果を確認済み。テスト全100件パス（既存テストにアプリ名・
+  MAX_KEYWORDS値のハードコードなし、影響なしを確認済み）
+
+### 2026-08-21：カテゴリ別スコアの表示名「LLMO対応度」→「AI検索対応度」（ユーザー要望）
+
+画面表示のみの変更（`app/scoring.py`の`CategoryScore("llmo", "AI検索対応度", ...)`）。内部の
+キー名（`llmo`）・CSS変数名（`--category-llmo`）・docs/の仕様書見出しは維持し、ユーザーに見える
+文字列のみ変更した。テストデータ内のラベル文字列（`tests/test_scoring.py`・
+`tests/test_report_and_admin.py`）も実態に合わせて更新。全100件パス。
+
 ---
 
 ## 更新ルール

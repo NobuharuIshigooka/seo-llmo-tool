@@ -30,7 +30,7 @@
 
 | 変数 | 既定値 | 内容 |
 |---|---|---|
-| `MAX_KEYWORDS` | 8 | 抽出キーワード数 |
+| `MAX_KEYWORDS` | 10 | 抽出キーワード数（2026-08-21：8→10に変更） |
 | `MAX_COMPETITORS` | 3 | 競合の抽出社数 |
 | `DAILY_AUDIT_LIMIT` | 30 | 1日の診断上限（人あたり） |
 | `SERP_CONCURRENCY` | 4 | SERP同時実行数 |

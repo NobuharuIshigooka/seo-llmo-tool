@@ -63,7 +63,7 @@ def test_compute_total_score_excludes_unmeasured_category():
     categories = [
         scoring.CategoryScore("technical_seo", "テクニカルSEO", 30, 30),
         scoring.CategoryScore("content_seo", "コンテンツSEO", 30, 30),
-        scoring.CategoryScore("llmo", "LLMO対応度", 0, 25, measured=False),
+        scoring.CategoryScore("llmo", "AI検索対応度", 0, 25, measured=False),
     ]
     total, band = scoring.compute_total_score(categories)
     assert total == 100

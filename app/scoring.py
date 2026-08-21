@@ -337,7 +337,7 @@ def score_llmo(page: CrawlResult, serp_results: list[SerpResult]) -> CategorySco
 
     raw_total = sum(i.score for i in items)
     normalized = raw_total / LLMO_TOTAL * CATEGORY_WEIGHTS["llmo"]
-    return CategoryScore("llmo", "LLMO対応度", normalized, CATEGORY_WEIGHTS["llmo"], items=items)
+    return CategoryScore("llmo", "AI検索対応度", normalized, CATEGORY_WEIGHTS["llmo"], items=items)
 
 
 # ---------------------------------------------------------------------------
