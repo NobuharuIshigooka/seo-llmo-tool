@@ -547,6 +547,36 @@ Cloud RunのSQLiteは再デプロイ・コンテナ再起動のたびに揮発�
 `227c9bc`にまとめ、2026-08-21にCloud Buildでビルド（image digest `sha256:b2f7c968...`）・
 `gcloud run deploy`で本番反映済み（revision `seo-llmo-tool-00019-bk6`、100%トラフィック）。
 
+### 2026-08-21：SerpApiからの移行先調査（Bright Data→却下、DataForSEO→保留中）
+
+SerpApiの残枠・料金の問題から、他のSERPプロバイダへの切り替えをユーザーと検討した。
+
+- **Bright Data**：却下。実際にAPIキーを発行しレスポンスを取得したところ、本ツールが依存する
+  Google AI Overview（表示有無・引用URL判定）は構造化JSONでは返らず、「生のHTML」
+  （`format: "raw"`）をこちらでパースする必要があると判明した。SerpApiは`ai_overview`を
+  JSON1フィールドとして構造化済みで返すため、乗り換えるとパース処理の実装コスト・Googleの
+  マークアップ変更への耐障害性の面で明確に劣る。詳細は開発者向けメモリ
+  （`project-serp-provider-brightdata-rejected`）にも記録済み
+- **DataForSEO SERP API**：有力候補。公式ドキュメント調査の結果、`ai_overview_element.references`
+  （domain・url・title・text）という構造化JSONでAI Overviewが取得できることを確認した
+  （`docs/api-integrations.md` 1章「将来の移行」に元々明記されていた移行先で、Backlinks連携の
+  廃止＝2026-08-19とは別物）。料金は無料クレジット$1（登録時自動付与、Live queryで約500回分）、
+  以降はLive $0.002/リクエスト・Standard $0.0006/リクエスト
+  - **現在の状態**：ユーザーが https://app.dataforseo.com/register でアカウント登録済み、
+    `.env`に`DATAFORSEO_LOGIN`・`DATAFORSEO_PASSWORD`（API Access画面の専用認証情報、
+    サイトログインパスワードとは別物）を設定済み
+  - 実際にテスト呼び出し（`serp/google/organic/live/advanced`エンドポイント）を1回試したところ、
+    最初はパスワード誤りで401、修正後は**アカウント未検証（403、`Please verify your account`）**で
+    ブロックされている。**次回はまずダッシュボードでメール確認等のアカウント検証を完了させることから
+    再開する**
+  - `SERP_PROVIDER=serpapi`のまま変更しておらず、本番・ローカルとも動作に影響なし
+  - 検証完了後の流れ：(1) テストリクエストを再実行しレスポンスJSON構造を確認 →
+    (2) `app/clients/serp.py`に`DataForSeoProvider`クラスを実装（`SerpProvider`プロトコルに準拠） →
+    (3) `.env.example`・`docs/api-integrations.md`・`docs/deployment.md`に`DATAFORSEO_LOGIN`/
+    `DATAFORSEO_PASSWORD`の仕様を追記 → (4) `SERP_PROVIDER`の切り替えテスト
+  - 検討時に`.env`の`ANTHROPIC_API_KEY`へDataForSEOの認証情報が誤って混入する事故が1度発生し、
+    ユーザーが訂正済み。次回作業時は`.env`の値を一通り目視確認してから着手すること
+
 ---
 
 ## 更新ルール

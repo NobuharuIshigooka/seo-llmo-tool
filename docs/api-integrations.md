@@ -48,6 +48,8 @@
 
 DataForSEO SERP API（Liveモード）への切り替えを想定し、クライアントは抽象化しておく。`SerpProvider` プロトコルを定義し、`SerpApiProvider` / `DataForSeoProvider` を差し替え可能にする。環境変数 `SERP_PROVIDER` で選択。
 
+**進捗（2026-08-21）**：`DataForSeoProvider`は未実装。ユーザーがDataForSEOアカウントを登録し`.env`に認証情報を設定済みだが、アカウント検証待ちでテスト呼び出しがブロックされている（403）。次回はアカウント検証完了から再開する。詳細は`docs/progress.md`工程6の該当日付エントリを参照。
+
 ---
 
 ## 2. Claude API
