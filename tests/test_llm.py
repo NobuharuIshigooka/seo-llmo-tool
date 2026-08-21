@@ -174,34 +174,23 @@ async def test_improvement_advice_falls_back_on_failure():
     assert "表示速度" in result
 
 
-async def test_category_advice_returns_text_and_caches_on_success():
-    mock_create = AsyncMock(return_value=_mock_response("改善すればもっと閲覧数が増える見込みがあります。"))
-    with patch.object(llm, "_client", return_value=SimpleNamespace(messages=SimpleNamespace(create=mock_create))), \
-         patch.object(llm.cache, "get", return_value=None) as mock_cache_get, \
-         patch.object(llm.cache, "set") as mock_cache_set:
-        result = await llm.category_advice("テクニカルSEO", "fair")
-
-    assert result == "改善すればもっと閲覧数が増える見込みがあります。"
-    mock_cache_get.assert_called_once_with("llm:category_advice:テクニカルSEO:fair")
-    mock_cache_set.assert_called_once()
+_CATEGORY_ITEMS = [
+    {"label": "表示速度（モバイル）", "evidence": "表示速度スコア 40／100", "score": 15.0, "max_score": 40},
+    {"label": "モバイル対応", "evidence": "viewportメタタグ なし", "score": 0.0, "max_score": 15},
+]
 
 
-async def test_category_advice_returns_cached_value_without_calling_api():
-    mock_create = AsyncMock()
-    with patch.object(llm, "_client", return_value=SimpleNamespace(messages=SimpleNamespace(create=mock_create))), \
-         patch.object(llm.cache, "get", return_value="キャッシュ済みの文章です。"):
-        result = await llm.category_advice("テクニカルSEO", "fair")
+async def test_category_advice_returns_text():
+    mock_create = AsyncMock(return_value=_mock_response("表示速度とモバイル対応を改善すると、より多くのユーザーに見てもらえます。"))
+    with patch.object(llm, "_client", return_value=SimpleNamespace(messages=SimpleNamespace(create=mock_create))):
+        result = await llm.category_advice("テクニカルSEO", "fair", _CATEGORY_ITEMS)
 
-    assert result == "キャッシュ済みの文章です。"
-    mock_create.assert_not_called()
+    assert result == "表示速度とモバイル対応を改善すると、より多くのユーザーに見てもらえます。"
 
 
-async def test_category_advice_falls_back_on_failure_without_caching():
+async def test_category_advice_falls_back_on_failure():
     mock_create = AsyncMock(side_effect=Exception("api error"))
-    with patch.object(llm, "_client", return_value=SimpleNamespace(messages=SimpleNamespace(create=mock_create))), \
-         patch.object(llm.cache, "get", return_value=None), \
-         patch.object(llm.cache, "set") as mock_cache_set:
-        result = await llm.category_advice("テクニカルSEO", "poor")
+    with patch.object(llm, "_client", return_value=SimpleNamespace(messages=SimpleNamespace(create=mock_create))):
+        result = await llm.category_advice("テクニカルSEO", "poor", _CATEGORY_ITEMS)
 
-    assert result == llm._fallback_category_advice("poor")
-    mock_cache_set.assert_not_called()
+    assert "モバイル対応" in result

@@ -498,6 +498,26 @@ Cloud RunのSQLiteは再デプロイ・コンテナ再起動のたびに揮発�
 `e215355`にまとめ、2026-08-21にCloud Buildでビルド（image digest `sha256:893c391c...`）・
 `gcloud run deploy`で本番反映済み（revision `seo-llmo-tool-00017-67q`、100%トラフィック）。
 
+### 2026-08-21：カテゴリ別アドバイスを抽象的な一言から具体的な文章に方針転換（ユーザー指摘）
+
+上記のカテゴリ別アドバイス初回実装は「具体的な施策名・数値には一切触れない抽象的な一言」だったが、
+「改善アドバイス（右上のカラム）と同等のアドバイスをカテゴリ別に出したい」という指摘。実測値を根拠に
+した具体的な文章に方針転換した。
+
+- `app/clients/llm.py`：`category_advice()`のシグネチャに`items`（カテゴリ内の各評価項目。label・
+  evidence・score・max_score）を追加。プロンプトを`improvement_advice()`と同様の構成
+  （実測値を列挙→「〜を改善しましょう」調の1〜2文・100字以内）に全面変更。サイト個別の実測値に
+  依存するためキャッシュは廃止（`improvement_advice()`と同じ扱い）。失敗時のフォールバックは
+  達成率が最も低い項目名を根拠にした固定文に変更（`_fallback_category_advice(band, weak_items)`）
+- `app/pipeline.py`：`_run_score_and_narrative()`で各カテゴリの`items`をdictに変換して渡すよう変更
+- `docs/api-integrations.md`：カテゴリ別アドバイスのキャッシュ表エントリを削除（キャッシュ廃止のため）
+- `docs/requirements.md` 4.4.4・`docs/frontend.md` 5.5：抽象的な一言→具体的な文章という方針転換を追記
+- 表示側（`.category-advice`のCSS・DOM構造、`report.html`・`audit.js`のテンプレート部分）は変更なし。
+  データの流し込み先（`result.score.categories[].advice`）が同じため
+- テスト：`tests/test_llm.py`のキャッシュ関連テスト3件を新シグネチャに合わせて2件に統合。全100件パス
+- Playwrightで`report.html`のレンダリング結果を確認済み（実測値を根拠にした具体的な文章が
+  各カテゴリの下に表示されることを確認）
+
 ---
 
 ## 更新ルール

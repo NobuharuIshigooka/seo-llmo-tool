@@ -227,7 +227,12 @@ async def _run_score_and_narrative(
     # フォールバックするため例外は送出しない。未計測カテゴリはアドバイス自体が不自然なため対象外。
     measured_categories = [c for c in score_result.categories if c.measured]
     category_advice_tasks = [
-        llm.category_advice(c.label, scoring.category_band(c)) for c in measured_categories
+        llm.category_advice(
+            c.label,
+            scoring.category_band(c),
+            [{"label": i.label, "evidence": i.evidence, "score": i.score, "max_score": i.max_score} for i in c.items],
+        )
+        for c in measured_categories
     ]
     advice, category_advices, (comparison, explanation) = await asyncio.gather(
         llm.improvement_advice(score_result.total_score, score_result.band, weak_points),

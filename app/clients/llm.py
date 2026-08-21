@@ -5,7 +5,6 @@ from collections import Counter
 from anthropic import AsyncAnthropic
 from fugashi import Tagger
 
-from app import cache
 from app.clients.crawler import CrawlResult
 from app.config import settings
 
@@ -216,65 +215,55 @@ async def improvement_advice(total_score: int, band: str, weak_points: list[str]
         return _fallback_improvement_advice(total_score, band, weak_points)
 
 
-CATEGORY_ADVICE_CACHE_TTL = 30 * 24 * 3600  # カテゴリ名×バンドのみに依存し内容がサイト非依存のため長め（30日）
-
-_CATEGORY_ADVICE_TONE = {
-    "good": "すでに良好な状態であることを踏まえつつ、さらに伸ばせる余地がある旨を前向きに伝えてください。",
-    "fair": "基礎はできているものの、もう一段の改善で成果が伸びる旨を前向きに伝えてください。",
-    "weak": "改善の余地がある旨を、責めるのではなく淡々と伝えてください。",
-    "poor": "改善の余地が大きい旨を、責めるのではなく淡々と伝えてください。",
-}
-
-
-def _fallback_category_advice(band: str) -> str:
-    return {
-        "good": "さらに強化すればもっと閲覧数が増える可能性があります。",
-        "fair": "改善すればもっと閲覧数が増える見込みがあります。",
-        "weak": "改善の余地はあります。",
-        "poor": "改善の余地は大きくあります。",
-    }.get(band, "改善の余地はあります。")
+def _fallback_category_advice(band: str, weak_items: list[str]) -> str:
+    band_text = {
+        "good": "全体として良好な状態です。",
+        "fair": "改善の余地はありますが基礎はできています。",
+        "weak": "いくつかの項目で改善が必要です。",
+        "poor": "多くの項目で改善が必要な状態です。",
+    }.get(band, "")
+    if weak_items:
+        return f"{band_text}特に{weak_items[0]}を改善することをおすすめします。"
+    return f"{band_text}改善の余地はあります。"
 
 
-async def category_advice(category_label: str, band: str) -> str:
-    """カテゴリ別スコアの下に添える、抽象的な一言アドバイス。
+async def category_advice(category_label: str, band: str, items: list[dict]) -> str:
+    """カテゴリ別スコアの下に添える改善アドバイス（右上の「改善アドバイス」と同様、実測値を根拠にした具体的な文章）。
 
-    具体的な施策名や数値は出さず、「〜すればもっと閲覧数が増える」
-    「〜すれば改善の余地はあります」のような抽象的なニュアンスの一文のみを返す。
-    サイト個別の実測値には触れないため、カテゴリ名×評価バンド単位でキャッシュする。
+    items はそのカテゴリ内の各評価項目（label・evidence・score・max_score）。サイト個別の
+    実測値に依存するため improvement_advice() と同様にキャッシュしない。失敗時は評価点の低い
+    項目名を根拠にした固定文にフォールバックする。
     """
-    cache_key = f"llm:category_advice:{category_label}:{band}"
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached
+    items_text = "\n".join(
+        f"- {i['label']}: {i['evidence']}（{i['score']}/{i['max_score']}点）" for i in items
+    )
+    weak_items = [
+        i["label"] for i in sorted(items, key=lambda i: (i["score"] / i["max_score"]) if i["max_score"] else 0)
+    ]
 
-    tone = _CATEGORY_ADVICE_TONE.get(band, _CATEGORY_ADVICE_TONE["weak"])
-    prompt = f"""Webサイトの診断結果画面で、カテゴリ別スコアの下に添える一言アドバイスを作成してください。
+    prompt = f"""以下はWebサイトのSEO/LLMO診断結果のうち、「{category_label}」カテゴリの実測データです。\
+この数値のみを根拠に、サイトの運営者・担当者に向けた改善アドバイスの文章を作成してください。
 
-カテゴリ名: {category_label}
+カテゴリ: {category_label}
 評価: {band}（good=良好, fair=標準, weak=要改善, poor=急ぎ改善）
+項目別の実測値:
+{items_text}
 
-{tone}
-
-制約:
-- 具体的な施策名・数値・実測値には一切触れないでください（実測値は本文中の別項目で個別に示すため不要です）。
-- 「〜すればもっと閲覧数が増えます」「〜すれば改善の余地はあります」のような、抽象的でニュアンスのみの一文にしてください。
-- 1文・30〜40字程度。日本語の自然な文章にしてください。
-- 出力は文章のみとし、前置きや記号（#, *, 「」など）は付けないでください。"""
+{_NO_HALLUCINATION_NOTE}
+「〜という状態です」で終わる現状説明ではなく、「〜を改善しましょう」「〜に取り組むことをおすすめします」のように、\
+読み手が次に何をすべきか分かるアドバイスとして書いてください。
+1〜2文・100字以内で、日本語の自然な文章にしてください。"""
 
     try:
         response = await _client().messages.create(
             model=settings.anthropic_model,
-            max_tokens=128,
-            temperature=0.5,
+            max_tokens=256,
+            temperature=0.3,
             messages=[{"role": "user", "content": prompt}],
         )
         text = response.content[0].text.strip()
         if not text:
             raise LlmError("カテゴリアドバイスが空です")
+        return text
     except Exception:
-        # 失敗結果はキャッシュしない（docs/api-integrations.md 5章）。一時的なAPI障害を
-        # フォールバック文のまま30日間キャッシュしてしまわないよう、成功時のみ cache.set する。
-        return _fallback_category_advice(band)
-
-    cache.set(cache_key, text, ttl_seconds=CATEGORY_ADVICE_CACHE_TTL)
-    return text
+        return _fallback_category_advice(band, weak_items)
