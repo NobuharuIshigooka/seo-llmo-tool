@@ -494,6 +494,10 @@ Cloud RunのSQLiteは再デプロイ・コンテナ再起動のたびに揮発�
   期待通り表示されることを確認）。`index.html`側はDOM要素の存在のみ確認（`audit.js`はIIFEのため
   ブラウザ上で直接関数を呼べず、レンダリング結果の目視確認は`report.html`と共通のCSS・DOM構造で代替）
 
+上記3件（表示速度スコアの表記変更・カテゴリ別アドバイス・総合スコアのドーナツ円グラフ化）はコミット
+`e215355`にまとめ、2026-08-21にCloud Buildでビルド（image digest `sha256:893c391c...`）・
+`gcloud run deploy`で本番反映済み（revision `seo-llmo-tool-00017-67q`、100%トラフィック）。
+
 ---
 
 ## 更新ルール
