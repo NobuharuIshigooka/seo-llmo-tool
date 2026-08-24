@@ -685,6 +685,26 @@ SerpApiの残枠・料金の問題から、他のSERPプロバイダへの切り
   DataForSEO側の料金消費状況の確認（無料クレジット$1の残量、Live $0.002/リクエストでの
   実消費ペース）、SerpApiの使用制限が解除された場合に`serpapi`へ戻すかどうかの判断
 
+### 2026-08-24（同日）：本番未再デプロイのまま`SERP_PROVIDER=dataforseo`にした不具合を修正
+
+上記の切替直後、ユーザーがブラウザで実診断したところ「未対応の SERP_PROVIDER です: dataforseo」
+という警告が出て検索順位・競合比較が取得できなかった。
+
+原因：`gcloud run services update --update-env-vars` は環境変数のみを更新するコマンドで、
+コンテナイメージ自体は前回デプロイ時点（`DataForSeoProvider`実装前のコミット）のまま変わらない。
+そのため環境変数だけ`dataforseo`に切り替わったが、動いているコード側の`get_provider()`は
+まだ`serpapi`しか分岐を知らないバージョンで、未対応エラーになっていた。`DataForSeoProvider`の
+実装はコミット・push済みだったが、Cloud Buildでの再ビルド・`gcloud run deploy`をこの時点では
+まだ実行していなかった（環境変数更新とイメージ更新は別操作という認識が抜けていた）。
+
+- `gcloud builds submit --tag gcr.io/seo-llmo-tool/seo-llmo-tool --project=seo-llmo-tool` で
+  `DataForSeoProvider`を含む最新コードを再ビルド（image digest `sha256:edbad7a2...`）
+- `gcloud run deploy` で本番反映（revision `seo-llmo-tool-00023-t28`、100%トラフィック）。
+  `SERP_PROVIDER=dataforseo`の環境変数は新リビジョンにも引き継がれていることを確認済み
+- `/auth/login`が正常にリダイレクトすることを確認（アプリ起動自体に問題なし）
+- **未実施**：ユーザーによる再度のブラウザでの実診断確認（今度こそ検索順位・競合比較が
+  正しく表示されるか）
+
 ---
 
 ## 更新ルール
