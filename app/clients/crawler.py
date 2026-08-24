@@ -37,7 +37,6 @@ class CrawlResult:
     internal_link_texts: list[str] = field(default_factory=list)
     has_viewport: bool = False
     json_ld_types: list[str] = field(default_factory=list)
-    has_json_ld_parse_error: bool = False  # application/ld+json はあるが json.loads に失敗したスクリプトが1つ以上ある
     is_noindex: bool = False
     has_canonical: bool = False
     is_https: bool = False
@@ -141,7 +140,6 @@ def _parse_html(url: str, html: str, fetched_via: str) -> CrawlResult:
         try:
             data = json.loads(script.string or "")
         except (json.JSONDecodeError, TypeError):
-            result.has_json_ld_parse_error = True
             continue
         items = data if isinstance(data, list) else [data]
         for item in items:

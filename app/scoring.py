@@ -11,7 +11,7 @@ from app.clients.crawler import CrawlResult
 from app.clients.psi import PsiResult
 from app.clients.serp import SerpResult
 
-RUBRIC_VERSION = "2026.08.3"
+RUBRIC_VERSION = "2026.08.4"
 
 # ---- カテゴリ配点 ----
 CATEGORY_WEIGHTS = {
@@ -21,21 +21,21 @@ CATEGORY_WEIGHTS = {
 }
 
 # ---- ①テクニカルSEO ----
-TECHNICAL_MOBILE_SPEED_POINTS = 40
-TECHNICAL_DESKTOP_SPEED_POINTS = 10
-TECHNICAL_MOBILE_FRIENDLY_POINTS = 15
-TECHNICAL_STRUCTURED_DATA_POINTS = 20
-TECHNICAL_CRAWLABILITY_POINTS = 15
-TECHNICAL_NOINDEX_POINTS = 8
-TECHNICAL_CANONICAL_POINTS = 4
-TECHNICAL_HTTPS_POINTS = 3
+# 2026-08-24：「構造化データ」（JSON-LD有無のみの判定）はLLMOの「FAQ / QA構造化データ」と
+# 判定内容が重複するため廃止。空いた20点は残り4項目に均等配分した（各+5、docs/scoring.md参照）。
+TECHNICAL_MOBILE_SPEED_POINTS = 45
+TECHNICAL_DESKTOP_SPEED_POINTS = 15
+TECHNICAL_MOBILE_FRIENDLY_POINTS = 20
+TECHNICAL_CRAWLABILITY_POINTS = 20
+TECHNICAL_NOINDEX_POINTS = 20 * 8 / 15  # 旧15点内訳(8:4:3)の比率を維持したまま20点にスケール
+TECHNICAL_CANONICAL_POINTS = 20 * 4 / 15
+TECHNICAL_HTTPS_POINTS = 20 * 3 / 15
 TECHNICAL_TOTAL = (
     TECHNICAL_MOBILE_SPEED_POINTS
     + TECHNICAL_DESKTOP_SPEED_POINTS
     + TECHNICAL_MOBILE_FRIENDLY_POINTS
-    + TECHNICAL_STRUCTURED_DATA_POINTS
     + TECHNICAL_CRAWLABILITY_POINTS
-)  # 40+10+15+20+15=100
+)  # 45+15+20+20=100
 
 # ---- ②コンテンツSEO ----
 CONTENT_BODY_LENGTH_POINTS = 30
@@ -69,7 +69,10 @@ EEAT_PATTERNS = {
 }
 
 # ---- ③LLMO対応度 ----
-LLMO_FAQ_POINTS = 25
+# 2026-08-24：「FAQ / QA構造化データ」は元々JSON-LD型（FAQPage/QAPage/HowTo）の有無を判定しており、
+# 後述の「構造化データ（LLM可読性）」（JSON-LD全般のパース成否）と判定対象が重複していたため、
+# LLM可読性側を廃止しFAQ/QA構造化データに配点を統合した（25→33、docs/scoring.md参照）。
+LLMO_FAQ_POINTS = 33
 LLMO_QA_HEADING_POINTS = 20
 LLMO_QA_HEADING_POINTS_PER = 4
 LLMO_INTRO_POINTS = 20
@@ -94,8 +97,6 @@ LLMO_HEADING_COUNT_PARTIAL = 2  # 2〜4個
 LLMO_CONTENT_BLOCK_POINTS = 5
 LLMO_CONTENT_BLOCK_FULL = 3  # article+section 3個以上で満点
 LLMO_CONTENT_BLOCK_PARTIAL = 2  # 1〜2個
-LLMO_STRUCTURED_DATA_VALID_POINTS = 8
-LLMO_STRUCTURED_DATA_ERROR_POINTS = 3  # JSON-LDはあるが構文エラーを含む
 LLMO_ROBOTS_TXT_POINTS = 5
 LLMO_SITEMAP_POINTS = 5
 LLMO_LLMS_TXT_POINTS = 7
@@ -104,11 +105,10 @@ LLMO_STRUCTURE_TOTAL = (
     LLMO_MAIN_TAG_POINTS
     + LLMO_HEADING_COUNT_POINTS
     + LLMO_CONTENT_BLOCK_POINTS
-    + LLMO_STRUCTURED_DATA_VALID_POINTS
     + LLMO_ROBOTS_TXT_POINTS
     + LLMO_SITEMAP_POINTS
     + LLMO_LLMS_TXT_POINTS
-)  # 5+5+5+8+5+5+7=40
+)  # 5+5+5+5+5+7=32
 
 LLMO_TOTAL = (
     LLMO_FAQ_POINTS
@@ -117,7 +117,7 @@ LLMO_TOTAL = (
     + LLMO_LIST_TABLE_POINTS
     + LLMO_AI_OVERVIEW_POINTS
     + LLMO_STRUCTURE_TOTAL
-)  # 25+20+20+15+20+40=140
+)  # 33+20+20+15+20+32=140
 
 # ---- 評価バンド ----
 BAND_THRESHOLDS = [
@@ -200,12 +200,6 @@ def score_technical_seo(page: CrawlResult, psi_mobile: PsiResult | None, psi_des
     items.append(ScoreItem(
         "モバイル対応", mobile_friendly_score, TECHNICAL_MOBILE_FRIENDLY_POINTS,
         "viewportメタタグ あり" if page.has_viewport else "viewportメタタグ なし",
-    ))
-
-    structured_data_score = TECHNICAL_STRUCTURED_DATA_POINTS if page.json_ld_types else 0.0
-    items.append(ScoreItem(
-        "構造化データ", structured_data_score, TECHNICAL_STRUCTURED_DATA_POINTS,
-        f"JSON-LD {len(page.json_ld_types)}件検出" if page.json_ld_types else "JSON-LD 未検出",
     ))
 
     crawlability_score = 0.0
@@ -388,17 +382,6 @@ def score_llmo(page: CrawlResult, serp_results: list[SerpResult]) -> CategorySco
         "本文ブロック", content_block_score, LLMO_CONTENT_BLOCK_POINTS,
         f"article・section 合計 {page.content_block_count}個",
     ))
-
-    if page.json_ld_types and not page.has_json_ld_parse_error:
-        structured_data_score = LLMO_STRUCTURED_DATA_VALID_POINTS
-        structured_data_evidence = f"JSON-LDが有効に存在（{len(page.json_ld_types)}件）"
-    elif page.has_json_ld_parse_error:
-        structured_data_score = LLMO_STRUCTURED_DATA_ERROR_POINTS
-        structured_data_evidence = "JSON-LDに構文エラーを検出"
-    else:
-        structured_data_score = 0.0
-        structured_data_evidence = "JSON-LD 未検出"
-    items.append(ScoreItem("構造化データ（LLM可読性）", structured_data_score, LLMO_STRUCTURED_DATA_VALID_POINTS, structured_data_evidence))
 
     robots_txt_score = LLMO_ROBOTS_TXT_POINTS if page.robots_txt_status == "allowed" else 0.0
     robots_txt_evidence = {

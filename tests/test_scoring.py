@@ -23,7 +23,6 @@ def _good_page() -> CrawlResult:
         main_count=1,
         heading_count=5,
         content_block_count=3,
-        has_json_ld_parse_error=False,
         robots_txt_status="allowed",
         has_sitemap=True,
         has_llms_txt=True,
@@ -48,7 +47,7 @@ def test_score_technical_seo_only_crawlability_when_psi_missing_and_no_signals()
     # is_noindex=False（未検出=noindexタグなし）が唯一加点される項目
     page = _empty_page()
     result = scoring.score_technical_seo(page, None, None)
-    assert result.score == 8 / scoring.TECHNICAL_TOTAL * 30
+    assert result.score == scoring.TECHNICAL_NOINDEX_POINTS / scoring.TECHNICAL_TOTAL * 30
 
 
 def test_ai_overview_neutral_when_not_shown():
@@ -138,10 +137,10 @@ def test_score_llmo_new_structure_items_full_marks_when_present():
     assert items_by_label["mainタグ"].score == scoring.LLMO_MAIN_TAG_POINTS
     assert items_by_label["見出し数"].score == scoring.LLMO_HEADING_COUNT_POINTS
     assert items_by_label["本文ブロック"].score == scoring.LLMO_CONTENT_BLOCK_POINTS
-    assert items_by_label["構造化データ（LLM可読性）"].score == scoring.LLMO_STRUCTURED_DATA_VALID_POINTS
     assert items_by_label["robots.txt"].score == scoring.LLMO_ROBOTS_TXT_POINTS
     assert items_by_label["sitemap.xml"].score == scoring.LLMO_SITEMAP_POINTS
     assert items_by_label["llms.txt"].score == scoring.LLMO_LLMS_TXT_POINTS
+    assert "構造化データ（LLM可読性）" not in items_by_label
 
 
 def test_score_llmo_new_structure_items_zero_when_absent():
@@ -151,7 +150,6 @@ def test_score_llmo_new_structure_items_zero_when_absent():
     assert items_by_label["mainタグ"].score == 0
     assert items_by_label["見出し数"].score == 0
     assert items_by_label["本文ブロック"].score == 0
-    assert items_by_label["構造化データ（LLM可読性）"].score == 0
     assert items_by_label["robots.txt"].score == 0
     assert items_by_label["sitemap.xml"].score == 0
     assert items_by_label["llms.txt"].score == 0
@@ -162,8 +160,6 @@ def test_score_llmo_structure_items_partial_scores():
     page.main_count = 2  # 2個以上は0点（1個のみが満点）
     page.heading_count = 3  # 2〜4個は部分点
     page.content_block_count = 1  # 1〜2個は部分点
-    page.json_ld_types = ["FAQPage"]
-    page.has_json_ld_parse_error = True  # 構文エラーを含む
     page.robots_txt_status = "disallowed_all"
 
     result = scoring.score_llmo(page, [])
@@ -171,13 +167,23 @@ def test_score_llmo_structure_items_partial_scores():
     assert items_by_label["mainタグ"].score == 0
     assert items_by_label["見出し数"].score == scoring.LLMO_HEADING_COUNT_PARTIAL
     assert items_by_label["本文ブロック"].score == scoring.LLMO_CONTENT_BLOCK_PARTIAL
-    assert items_by_label["構造化データ（LLM可読性）"].score == scoring.LLMO_STRUCTURED_DATA_ERROR_POINTS
     assert items_by_label["robots.txt"].score == 0
+
+
+def test_faq_qa_structured_data_covers_json_ld_type_detection():
+    # 旧「構造化データ（LLM可読性）」は廃止し、FAQ/QA構造化データに配点を統合したため、
+    # JSON-LD型の有無判定はこの項目のみで行う
+    page = _empty_page()
+    page.json_ld_types = ["FAQPage"]
+    result = scoring.score_llmo(page, [])
+    items_by_label = {item.label: item for item in result.items}
+    assert items_by_label["FAQ / QA構造化データ"].score == scoring.LLMO_FAQ_POINTS
 
 
 def test_llmo_total_matches_sum_of_all_item_max_scores():
     assert scoring.LLMO_TOTAL == 140
-    assert scoring.LLMO_STRUCTURE_TOTAL == 40
+    assert scoring.LLMO_STRUCTURE_TOTAL == 32
+    assert scoring.LLMO_FAQ_POINTS == 33
 
 
 def test_compute_improvements_normalizes_by_category_raw_total():

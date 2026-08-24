@@ -78,13 +78,12 @@ async def test_fetch_parses_html_via_playwright():
     assert result.main_count == 1
     assert result.heading_count == 4  # h1×1 + h2×2 + h3×1
     assert result.content_block_count == 1  # article×1
-    assert result.has_json_ld_parse_error is False
     assert result.robots_txt_status == "allowed"
     assert result.has_sitemap is True
     assert result.has_llms_txt is True
 
 
-async def test_fetch_detects_json_ld_parse_error():
+async def test_fetch_skips_json_ld_script_with_invalid_syntax():
     broken_html = SAMPLE_HTML.replace(
         '<script type="application/ld+json">{"@type": "FAQPage"}</script>',
         '<script type="application/ld+json">{invalid json}</script>',
@@ -94,7 +93,6 @@ async def test_fetch_detects_json_ld_parse_error():
          patch.object(crawler, "_fetch_text_exists", new=AsyncMock(return_value=False)):
         result = await crawler.fetch("https://example.co.jp/broken")
 
-    assert result.has_json_ld_parse_error is True
     assert result.json_ld_types == []
     assert result.robots_txt_status == "missing"
     assert result.has_sitemap is False
