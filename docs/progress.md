@@ -617,13 +617,13 @@ SerpApiの残枠・料金の問題から、他のSERPプロバイダへの切り
 重複しているので削除してほしい。空いた点数は重要度の高い項目に割り振ってほしい」という指摘があった。
 
 - **削除**：テクニカルSEO「構造化データ」（JSON-LD有無のみの判定、旧20点）、LLMO「構造化データ
-  （LLM可読性）」（JSON-LDのパース成否判定、旧素点8点）。いずれもLLMOの「FAQ / QA構造化データ」
+  （LLM可読性）」（JSON-LDのパース成否判定、旧素点8点）。いずれもLLMOの「FAQ / Q&A構造化データ」
   （FAQPage/QAPage/HowTo型の有無）と実測値が重複していたため
 - **再配分**（ユーザー判断）：
   - テクニカルSEOで空いた20点は残り4項目（表示速度モバイル/PC・モバイル対応・クロール可能性）に
     均等配分（各+5）。表示速度モバイル40→45・PC10→15・モバイル対応15→20・クロール可能性15→20
     （内訳noindex/canonical/HTTPSは旧8:4:3比率を維持したままスケール）
-  - LLMOで空いた素点8点はFAQ/QA構造化データに上乗せ（25→33）。LLMO内部の素点合計は140点で変わらず
+  - LLMOで空いた素点8点はFAQ/Q&A構造化データに上乗せ（25→33）。LLMO内部の素点合計は140点で変わらず
     （既存5項目100→108、新規項目40→32）
 - `app/scoring.py`：`TECHNICAL_STRUCTURED_DATA_POINTS`・`LLMO_STRUCTURED_DATA_VALID_POINTS`・
   `LLMO_STRUCTURED_DATA_ERROR_POINTS`を削除、`score_technical_seo()`・`score_llmo()`から
@@ -632,7 +632,7 @@ SerpApiの残枠・料金の問題から、他のSERPプロバイダへの切り
   参照箇所がなくなったため）。JSON-LDパース失敗時の`continue`処理自体は維持（構文エラーのある
   スクリプトを無視して残りをパースし続ける挙動に変更なし）
 - テスト：`tests/test_scoring.py`・`tests/test_crawler.py`から構造化データ関連の削除済み項目への
-  参照を除去し、統合後のFAQ/QA構造化データがJSON-LD型検出を引き続きカバーすることを検証する
+  参照を除去し、統合後のFAQ/Q&A構造化データがJSON-LD型検出を引き続きカバーすることを検証する
   テストを追加。全107件パス
 - Cloud Buildでビルド（image digest `sha256:f3b7b637...`）・`gcloud run deploy`で本番反映済み
   （revision `seo-llmo-tool-00021-86z`、100%トラフィック、2026-08-24）

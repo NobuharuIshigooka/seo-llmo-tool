@@ -21,7 +21,7 @@ CATEGORY_WEIGHTS = {
 }
 
 # ---- ①テクニカルSEO ----
-# 2026-08-24：「構造化データ」（JSON-LD有無のみの判定）はLLMOの「FAQ / QA構造化データ」と
+# 2026-08-24：「構造化データ」（JSON-LD有無のみの判定）はLLMOの「FAQ / Q&A構造化データ」と
 # 判定内容が重複するため廃止。空いた20点は残り4項目に均等配分した（各+5、docs/scoring.md参照）。
 TECHNICAL_MOBILE_SPEED_POINTS = 45
 TECHNICAL_DESKTOP_SPEED_POINTS = 15
@@ -69,9 +69,9 @@ EEAT_PATTERNS = {
 }
 
 # ---- ③LLMO対応度 ----
-# 2026-08-24：「FAQ / QA構造化データ」は元々JSON-LD型（FAQPage/QAPage/HowTo）の有無を判定しており、
+# 2026-08-24：「FAQ / Q&A構造化データ」は元々JSON-LD型（FAQPage/QAPage/HowTo）の有無を判定しており、
 # 後述の「構造化データ（LLM可読性）」（JSON-LD全般のパース成否）と判定対象が重複していたため、
-# LLM可読性側を廃止しFAQ/QA構造化データに配点を統合した（25→33、docs/scoring.md参照）。
+# LLM可読性側を廃止しFAQ/Q&A構造化データに配点を統合した（25→33、docs/scoring.md参照）。
 LLMO_FAQ_POINTS = 33
 LLMO_QA_HEADING_POINTS = 20
 LLMO_QA_HEADING_POINTS_PER = 4
@@ -338,7 +338,7 @@ def score_llmo(page: CrawlResult, serp_results: list[SerpResult]) -> CategorySco
 
     faq_score = LLMO_FAQ_POINTS if has_faq_schema(page) else 0.0
     items.append(ScoreItem(
-        "FAQ / QA構造化データ", faq_score, LLMO_FAQ_POINTS,
+        "FAQ / Q&A構造化データ", faq_score, LLMO_FAQ_POINTS,
         f"JSON-LD種別: {', '.join(page.json_ld_types)}" if page.json_ld_types else "JSON-LD なし",
     ))
 

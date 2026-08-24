@@ -171,13 +171,13 @@ def test_score_llmo_structure_items_partial_scores():
 
 
 def test_faq_qa_structured_data_covers_json_ld_type_detection():
-    # 旧「構造化データ（LLM可読性）」は廃止し、FAQ/QA構造化データに配点を統合したため、
+    # 旧「構造化データ（LLM可読性）」は廃止し、FAQ/Q&A構造化データに配点を統合したため、
     # JSON-LD型の有無判定はこの項目のみで行う
     page = _empty_page()
     page.json_ld_types = ["FAQPage"]
     result = scoring.score_llmo(page, [])
     items_by_label = {item.label: item for item in result.items}
-    assert items_by_label["FAQ / QA構造化データ"].score == scoring.LLMO_FAQ_POINTS
+    assert items_by_label["FAQ / Q&A構造化データ"].score == scoring.LLMO_FAQ_POINTS
 
 
 def test_llmo_total_matches_sum_of_all_item_max_scores():
