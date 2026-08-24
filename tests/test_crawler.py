@@ -15,19 +15,24 @@ SAMPLE_HTML = """
   <script type="application/ld+json">{"@type": "FAQPage"}</script>
 </head>
 <body>
-  <h1>メイン見出し</h1>
-  <h2>小見出し1</h2>
-  <h2>小見出し2</h2>
-  <p>これは最初の段落です。</p>
-  <ul><li>項目1</li></ul>
-  <table><tr><td>表</td></tr></table>
-  <img src="/a.jpg" alt="施術風景の写真">
-  <img src="/b.jpg" alt="">
-  <a href="/about">会社概要</a>
-  <a href="https://example.co.jp/contact">お問い合わせ</a>
-  <a href="https://other.co.jp/">外部サイト</a>
-  <a href="#section">ページ内リンク</a>
-  <a href="mailto:info@example.co.jp">メール</a>
+  <main>
+    <article>
+      <h1>メイン見出し</h1>
+      <h2>小見出し1</h2>
+      <h2>小見出し2</h2>
+      <h3>小々見出し</h3>
+      <p>これは最初の段落です。</p>
+      <ul><li>項目1</li></ul>
+      <table><tr><td>表</td></tr></table>
+      <img src="/a.jpg" alt="施術風景の写真">
+      <img src="/b.jpg" alt="">
+      <a href="/about">会社概要</a>
+      <a href="https://example.co.jp/contact">お問い合わせ</a>
+      <a href="https://other.co.jp/">外部サイト</a>
+      <a href="#section">ページ内リンク</a>
+      <a href="mailto:info@example.co.jp">メール</a>
+    </article>
+  </main>
 </body>
 </html>
 """
@@ -50,7 +55,9 @@ def _isolated_cache():
 
 
 async def test_fetch_parses_html_via_playwright():
-    with patch.object(crawler, "_fetch_with_playwright", new=AsyncMock(return_value=SAMPLE_HTML)):
+    with patch.object(crawler, "_fetch_with_playwright", new=AsyncMock(return_value=SAMPLE_HTML)), \
+         patch.object(crawler, "_fetch_robots_txt", new=AsyncMock(return_value=(True, "allowed"))), \
+         patch.object(crawler, "_fetch_text_exists", new=AsyncMock(return_value=True)):
         result = await crawler.fetch("https://example.co.jp/")
 
     assert result.fetched_via == "playwright"
@@ -68,11 +75,37 @@ async def test_fetch_parses_html_via_playwright():
     assert result.meta_keywords == ["キーワード1", "キーワード2", "キーワード3"]
     assert result.alt_texts == ["施術風景の写真"]
     assert result.internal_link_texts == ["会社概要", "お問い合わせ"]
+    assert result.main_count == 1
+    assert result.heading_count == 4  # h1×1 + h2×2 + h3×1
+    assert result.content_block_count == 1  # article×1
+    assert result.has_json_ld_parse_error is False
+    assert result.robots_txt_status == "allowed"
+    assert result.has_sitemap is True
+    assert result.has_llms_txt is True
+
+
+async def test_fetch_detects_json_ld_parse_error():
+    broken_html = SAMPLE_HTML.replace(
+        '<script type="application/ld+json">{"@type": "FAQPage"}</script>',
+        '<script type="application/ld+json">{invalid json}</script>',
+    )
+    with patch.object(crawler, "_fetch_with_playwright", new=AsyncMock(return_value=broken_html)), \
+         patch.object(crawler, "_fetch_robots_txt", new=AsyncMock(return_value=(True, "missing"))), \
+         patch.object(crawler, "_fetch_text_exists", new=AsyncMock(return_value=False)):
+        result = await crawler.fetch("https://example.co.jp/broken")
+
+    assert result.has_json_ld_parse_error is True
+    assert result.json_ld_types == []
+    assert result.robots_txt_status == "missing"
+    assert result.has_sitemap is False
+    assert result.has_llms_txt is False
 
 
 async def test_fetch_falls_back_to_httpx_when_playwright_fails():
     with patch.object(crawler, "_fetch_with_playwright", new=AsyncMock(side_effect=Exception("boom"))), \
-         patch.object(crawler, "_fetch_with_httpx", new=AsyncMock(return_value=SAMPLE_HTML)):
+         patch.object(crawler, "_fetch_with_httpx", new=AsyncMock(return_value=SAMPLE_HTML)), \
+         patch.object(crawler, "_fetch_robots_txt", new=AsyncMock(return_value=(True, "allowed"))), \
+         patch.object(crawler, "_fetch_text_exists", new=AsyncMock(return_value=False)):
         result = await crawler.fetch("https://example.co.jp/")
 
     assert result.fetched_via == "httpx"
@@ -87,7 +120,9 @@ async def test_fetch_raises_crawl_error_when_both_fail():
 
 
 async def test_fetch_uses_cache_on_second_call():
-    with patch.object(crawler, "_fetch_with_playwright", new=AsyncMock(return_value=SAMPLE_HTML)) as mock_pw:
+    with patch.object(crawler, "_fetch_with_playwright", new=AsyncMock(return_value=SAMPLE_HTML)) as mock_pw, \
+         patch.object(crawler, "_fetch_robots_txt", new=AsyncMock(return_value=(True, "allowed"))), \
+         patch.object(crawler, "_fetch_text_exists", new=AsyncMock(return_value=False)):
         await crawler.fetch("https://example.co.jp/")
         await crawler.fetch("https://example.co.jp/")
 
@@ -106,6 +141,7 @@ async def test_robots_disallow_blocks_fetch():
 
 async def test_robots_fetch_failure_defaults_to_allowed():
     with patch("httpx.AsyncClient.get", new=AsyncMock(side_effect=Exception("network error"))):
-        allowed = await crawler._robots_allows("https://example.co.jp/", "TestBot/1.0")
+        allowed, status = await crawler._fetch_robots_txt("https://example.co.jp/", "TestBot/1.0")
 
     assert allowed is True
+    assert status == "missing"

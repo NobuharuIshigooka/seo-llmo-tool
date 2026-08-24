@@ -11,13 +11,13 @@ from app.clients.crawler import CrawlResult
 from app.clients.psi import PsiResult
 from app.clients.serp import SerpResult
 
-RUBRIC_VERSION = "2026.08.2"
+RUBRIC_VERSION = "2026.08.3"
 
 # ---- カテゴリ配点 ----
 CATEGORY_WEIGHTS = {
     "technical_seo": 30,
     "content_seo": 30,
-    "llmo": 25,
+    "llmo": 35,
 }
 
 # ---- ①テクニカルSEO ----
@@ -76,9 +76,6 @@ LLMO_INTRO_POINTS = 20
 LLMO_LIST_TABLE_POINTS = 15
 LLMO_LIST_TABLE_POINTS_PER = 2.5
 LLMO_AI_OVERVIEW_POINTS = 20
-LLMO_TOTAL = (
-    LLMO_FAQ_POINTS + LLMO_QA_HEADING_POINTS + LLMO_INTRO_POINTS + LLMO_LIST_TABLE_POINTS + LLMO_AI_OVERVIEW_POINTS
-)  # 25+20+20+15+20=100
 
 FAQ_JSON_LD_TYPES = {"FAQPage", "QAPage", "HowTo"}
 QA_HEADING_KEYWORDS = ["?", "？", "とは", "なぜ", "どう", "方法", "できる", "違い", "いくら", "おすすめ"]
@@ -86,6 +83,41 @@ INTRO_MIN_CHARS = 40
 INTRO_MAX_CHARS = 200
 INTRO_PARTIAL_POINTS = 10
 AI_OVERVIEW_NEUTRAL_RATIO = 0.5  # AI Overview が1件も表示されない場合の中立評価
+
+# ---- ③LLMO対応度：情報構造・補足情報・発見巡回（2026-08-24追加） ----
+# 既存5項目（FAQ〜AI Overview、素点合計100）とは別枠として素点を積み増し、
+# LLMO_STRUCTURE_TOTAL を合算した素点でカテゴリ配点（CATEGORY_WEIGHTS["llmo"]）に正規化する。
+LLMO_MAIN_TAG_POINTS = 5
+LLMO_HEADING_COUNT_POINTS = 5
+LLMO_HEADING_COUNT_FULL = 5  # 5個以上で満点
+LLMO_HEADING_COUNT_PARTIAL = 2  # 2〜4個
+LLMO_CONTENT_BLOCK_POINTS = 5
+LLMO_CONTENT_BLOCK_FULL = 3  # article+section 3個以上で満点
+LLMO_CONTENT_BLOCK_PARTIAL = 2  # 1〜2個
+LLMO_STRUCTURED_DATA_VALID_POINTS = 8
+LLMO_STRUCTURED_DATA_ERROR_POINTS = 3  # JSON-LDはあるが構文エラーを含む
+LLMO_ROBOTS_TXT_POINTS = 5
+LLMO_SITEMAP_POINTS = 5
+LLMO_LLMS_TXT_POINTS = 7
+
+LLMO_STRUCTURE_TOTAL = (
+    LLMO_MAIN_TAG_POINTS
+    + LLMO_HEADING_COUNT_POINTS
+    + LLMO_CONTENT_BLOCK_POINTS
+    + LLMO_STRUCTURED_DATA_VALID_POINTS
+    + LLMO_ROBOTS_TXT_POINTS
+    + LLMO_SITEMAP_POINTS
+    + LLMO_LLMS_TXT_POINTS
+)  # 5+5+5+8+5+5+7=40
+
+LLMO_TOTAL = (
+    LLMO_FAQ_POINTS
+    + LLMO_QA_HEADING_POINTS
+    + LLMO_INTRO_POINTS
+    + LLMO_LIST_TABLE_POINTS
+    + LLMO_AI_OVERVIEW_POINTS
+    + LLMO_STRUCTURE_TOTAL
+)  # 25+20+20+15+20+40=140
 
 # ---- 評価バンド ----
 BAND_THRESHOLDS = [
@@ -335,6 +367,53 @@ def score_llmo(page: CrawlResult, serp_results: list[SerpResult]) -> CategorySco
     ai_overview_score, ai_overview_evidence = _ai_overview_score(serp_results)
     items.append(ScoreItem("AI Overview での引用", ai_overview_score, LLMO_AI_OVERVIEW_POINTS, ai_overview_evidence))
 
+    main_score = LLMO_MAIN_TAG_POINTS if page.main_count == 1 else 0.0
+    items.append(ScoreItem("mainタグ", main_score, LLMO_MAIN_TAG_POINTS, f"main要素 {page.main_count}個"))
+
+    if page.heading_count >= LLMO_HEADING_COUNT_FULL:
+        heading_score = LLMO_HEADING_COUNT_POINTS
+    elif page.heading_count >= 2:
+        heading_score = LLMO_HEADING_COUNT_PARTIAL
+    else:
+        heading_score = 0.0
+    items.append(ScoreItem("見出し数", heading_score, LLMO_HEADING_COUNT_POINTS, f"見出し（h1〜h6）合計 {page.heading_count}個"))
+
+    if page.content_block_count >= LLMO_CONTENT_BLOCK_FULL:
+        content_block_score = LLMO_CONTENT_BLOCK_POINTS
+    elif page.content_block_count >= 1:
+        content_block_score = LLMO_CONTENT_BLOCK_PARTIAL
+    else:
+        content_block_score = 0.0
+    items.append(ScoreItem(
+        "本文ブロック", content_block_score, LLMO_CONTENT_BLOCK_POINTS,
+        f"article・section 合計 {page.content_block_count}個",
+    ))
+
+    if page.json_ld_types and not page.has_json_ld_parse_error:
+        structured_data_score = LLMO_STRUCTURED_DATA_VALID_POINTS
+        structured_data_evidence = f"JSON-LDが有効に存在（{len(page.json_ld_types)}件）"
+    elif page.has_json_ld_parse_error:
+        structured_data_score = LLMO_STRUCTURED_DATA_ERROR_POINTS
+        structured_data_evidence = "JSON-LDに構文エラーを検出"
+    else:
+        structured_data_score = 0.0
+        structured_data_evidence = "JSON-LD 未検出"
+    items.append(ScoreItem("構造化データ（LLM可読性）", structured_data_score, LLMO_STRUCTURED_DATA_VALID_POINTS, structured_data_evidence))
+
+    robots_txt_score = LLMO_ROBOTS_TXT_POINTS if page.robots_txt_status == "allowed" else 0.0
+    robots_txt_evidence = {
+        "allowed": "robots.txt 設置あり・許可",
+        "disallowed_all": "robots.txt が全ページを拒否",
+        "missing": "robots.txt 未設置",
+    }[page.robots_txt_status]
+    items.append(ScoreItem("robots.txt", robots_txt_score, LLMO_ROBOTS_TXT_POINTS, robots_txt_evidence))
+
+    sitemap_score = LLMO_SITEMAP_POINTS if page.has_sitemap else 0.0
+    items.append(ScoreItem("sitemap.xml", sitemap_score, LLMO_SITEMAP_POINTS, "設置あり" if page.has_sitemap else "未設置"))
+
+    llms_txt_score = LLMO_LLMS_TXT_POINTS if page.has_llms_txt else 0.0
+    items.append(ScoreItem("llms.txt", llms_txt_score, LLMO_LLMS_TXT_POINTS, "設置あり" if page.has_llms_txt else "未設置"))
+
     raw_total = sum(i.score for i in items)
     normalized = raw_total / LLMO_TOTAL * CATEGORY_WEIGHTS["llmo"]
     return CategoryScore("llmo", "AI検索対応度", normalized, CATEGORY_WEIGHTS["llmo"], items=items)
@@ -372,16 +451,19 @@ def compute_total_score(categories: list[CategoryScore]) -> tuple[int, str]:
 
 
 def compute_improvements(categories: list[CategoryScore]) -> list[ImprovementPoint]:
-    """失点 ÷ 100 × カテゴリ重み を計算し、大きい順に上位3件を返す。"""
+    """失点 ÷ カテゴリ内の素点合計 × カテゴリ重み を計算し、大きい順に上位3件を返す。"""
     points: list[ImprovementPoint] = []
     for category in categories:
         if not category.measured:
+            continue
+        category_raw_total = sum(i.max_score for i in category.items)
+        if category_raw_total <= 0:
             continue
         for item in category.items:
             lost_points = item.max_score - item.score
             if lost_points <= 0:
                 continue
-            impact = (lost_points / 100) * category.weight
+            impact = (lost_points / category_raw_total) * category.weight
             points.append(ImprovementPoint(label=item.label, category=category.label, impact=impact))
 
     points.sort(key=lambda p: p.impact, reverse=True)

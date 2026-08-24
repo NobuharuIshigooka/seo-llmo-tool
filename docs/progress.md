@@ -577,6 +577,39 @@ SerpApiの残枠・料金の問題から、他のSERPプロバイダへの切り
   - 検討時に`.env`の`ANTHROPIC_API_KEY`へDataForSEOの認証情報が誤って混入する事故が1度発生し、
     ユーザーが訂正済み。次回作業時は`.env`の値を一通り目視確認してから着手すること
 
+### 2026-08-24：LLMO対応度に「情報構造・発見巡回」系7項目を追加（ユーザー要望）
+
+ユーザーからmainタグ・H1構造・見出し数・本文ブロック・タイトル文字数・description文字数・
+構造化データ・canonical・robots.txt・sitemap.xml・llms.txt・noindexの12項目を追加したいという
+要望があった。既存カテゴリ（テクニカルSEO／コンテンツSEO）と実測値が重複する5項目
+（H1構造・タイトル文字数・description文字数・canonical・noindex）は追加せず、新規性のある
+7項目のみをLLMO対応度に追加する方針をユーザーと合意（重複配点によるカテゴリ間の相関を避けるため）。
+配点は「LLMO対応度の配点自体を増やす」「新規7項目に軽めの配点を新設し既存5項目は維持」を選択。
+
+- `docs/scoring.md`・`docs/requirements.md`：総合配点をテクニカル30・コンテンツ30・LLMO35
+  （合計95→100点換算）に変更。LLMO対応度は内部素点合計140点（既存5項目100点＋新規7項目40点）を
+  35点に正規化する方式に変更した
+- `app/clients/crawler.py`：`CrawlResult`に`main_count`・`heading_count`（h1〜h6合計）・
+  `content_block_count`（article+section合計）・`has_json_ld_parse_error`・`robots_txt_status`
+  （"allowed"/"disallowed_all"/"missing"）・`has_sitemap`・`has_llms_txt`を追加
+  - `_robots_allows()`を`_fetch_robots_txt()`にリネームし、アクセス可否とスコア用の設置状態を
+    1回のリクエストで両方返すよう変更（robots.txtの二重取得を避けるため）
+  - `_fetch_text_exists()`を新設し、`fetch()`が`/sitemap.xml`・`/llms.txt`を並行取得する
+  - JSON-LDの`json.JSONDecodeError`を握りつぶしていた既存コードに、パース失敗を記録する
+    `has_json_ld_parse_error`フラグを追加（元のcontinueは維持しつつ、失敗した事実だけ残す）
+- `app/scoring.py`：`score_llmo()`に新規7項目を追加。`CATEGORY_WEIGHTS["llmo"]`を25→35に、
+  `RUBRIC_VERSION`を`2026.08.3`に更新
+  - **実装中に発見したバグを合わせて修正**：`compute_improvements()`が「失点 ÷ 100 × カテゴリ重み」を
+    ハードコードしており、各カテゴリの素点合計が100点であることを前提にしていた。LLMO素点が140点に
+    なったことでこの前提が崩れるため、「失点 ÷ カテゴリ内の素点合計 × カテゴリ重み」に修正した
+    （テクニカルSEO・コンテンツSEOは素点100のままのため計算結果に影響なし）
+- `app/templates/report.html`・`app/static/js/audit.js`：カテゴリ内訳は`items`配列を汎用的に
+  ループ表示する既存実装のため、テンプレート・JS側の変更は不要（新規7項目も自動的に表示される）
+- テスト：`tests/test_crawler.py`に新規フィールドの検証（正常系・JSON-LD構文エラー系）を追加、
+  `_robots_allows`参照テストを`_fetch_robots_txt`に追随。`tests/test_scoring.py`に新規7項目の
+  満点・部分点・0点パターン、`compute_improvements`の正規化修正を検証するテストを追加。全106件パス
+- **未実施**：実サイト検証（工程6の閾値調整タスクと合わせて、新規7項目の配点も実データで見直す）
+
 ---
 
 ## 更新ルール

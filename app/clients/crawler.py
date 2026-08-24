@@ -37,11 +37,18 @@ class CrawlResult:
     internal_link_texts: list[str] = field(default_factory=list)
     has_viewport: bool = False
     json_ld_types: list[str] = field(default_factory=list)
+    has_json_ld_parse_error: bool = False  # application/ld+json はあるが json.loads に失敗したスクリプトが1つ以上ある
     is_noindex: bool = False
     has_canonical: bool = False
     is_https: bool = False
     list_table_count: int = 0
     internal_link_count: int = 0
+    main_count: int = 0
+    heading_count: int = 0  # h1〜h6の合計数
+    content_block_count: int = 0  # article + section の合計数
+    robots_txt_status: str = "missing"  # "allowed" / "disallowed_all" / "missing"
+    has_sitemap: bool = False
+    has_llms_txt: bool = False
     fetched_via: str = "playwright"  # playwright / httpx
 
 
@@ -57,10 +64,12 @@ def _default_user_agent() -> str:
     return settings.user_agent or "SEO-LLMO-Diagnostic-Bot/1.0 (+https://example.co.jp/contact)"
 
 
-async def _robots_allows(url: str, user_agent: str) -> bool:
-    if not settings.respect_robots:
-        return True
+async def _fetch_robots_txt(url: str, user_agent: str) -> tuple[bool, str]:
+    """(診断対象URLへのアクセス可否, スコア用の設置状態) を返す。
 
+    設置状態は "allowed"（設置あり・許可）/ "disallowed_all"（全面Disallow）/ "missing"（未設置・取得不可）の3種類。
+    アクセス可否は取得不可時を許可扱いにする既存方針（docs/api-integrations.md 6章）を維持する。
+    """
     parsed = urlparse(url)
     robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
 
@@ -68,12 +77,26 @@ async def _robots_allows(url: str, user_agent: str) -> bool:
         async with httpx.AsyncClient(timeout=5) as client:
             resp = await client.get(robots_url, headers={"User-Agent": user_agent})
         if resp.status_code >= 400:
-            return True  # 取得不可時は許可扱い
+            return True, "missing"
         parser = RobotFileParser()
         parser.parse(resp.text.splitlines())
-        return parser.can_fetch(user_agent, url)
+        allowed = parser.can_fetch(user_agent, url)
+        # "*" に対して全パス拒否かどうかで全面Disallowを判定する
+        all_disallowed = not parser.can_fetch(user_agent, f"{parsed.scheme}://{parsed.netloc}/")
+        status = "disallowed_all" if all_disallowed else "allowed"
+        return allowed, status
     except (httpx.HTTPError, Exception):
-        return True  # 取得不可時は許可扱い
+        return True, "missing"
+
+
+async def _fetch_text_exists(url: str) -> bool:
+    """sitemap.xml・llms.txt 用の軽量な存在確認。"""
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get(url)
+        return resp.status_code < 400
+    except (httpx.HTTPError, Exception):
+        return False
 
 
 def _parse_html(url: str, html: str, fetched_via: str) -> CrawlResult:
@@ -108,11 +131,17 @@ def _parse_html(url: str, html: str, fetched_via: str) -> CrawlResult:
     result.h1_list = [h.get_text(strip=True) for h in soup.find_all("h1")]
     result.h2_list = [h.get_text(strip=True) for h in soup.find_all("h2")]
     result.h3_list = [h.get_text(strip=True) for h in soup.find_all("h3")]
+    result.heading_count = len(soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6"]))
 
-    for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
+    result.main_count = len(soup.find_all("main"))
+    result.content_block_count = len(soup.find_all(["article", "section"]))
+
+    ld_json_scripts = soup.find_all("script", attrs={"type": "application/ld+json"})
+    for script in ld_json_scripts:
         try:
             data = json.loads(script.string or "")
         except (json.JSONDecodeError, TypeError):
+            result.has_json_ld_parse_error = True
             continue
         items = data if isinstance(data, list) else [data]
         for item in items:
@@ -183,7 +212,8 @@ async def fetch(url: str) -> CrawlResult:
 
     user_agent = _default_user_agent()
 
-    if not await _robots_allows(url, user_agent):
+    access_allowed, robots_txt_status = await _fetch_robots_txt(url, user_agent)
+    if settings.respect_robots and not access_allowed:
         raise CrawlError(f"robots.txt により診断対象URLへのアクセスが禁止されています: {url}")
 
     domain = _domain_of(url)
@@ -199,6 +229,15 @@ async def fetch(url: str) -> CrawlResult:
                 result = _parse_html(url, html, fetched_via="httpx")
             except Exception as exc:
                 raise CrawlError(f"クロールに失敗しました: {url} ({exc})") from exc
+
+    result.robots_txt_status = robots_txt_status
+
+    parsed = urlparse(url)
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    result.has_sitemap, result.has_llms_txt = await asyncio.gather(
+        _fetch_text_exists(f"{origin}/sitemap.xml"),
+        _fetch_text_exists(f"{origin}/llms.txt"),
+    )
 
     cache.set(cache_key, result.__dict__, ttl_seconds=settings.crawl_cache_ttl)
     return result
