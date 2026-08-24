@@ -74,13 +74,15 @@ DataForSEO側のステータスは `status_code`（全体）と `tasks[0].status
 ヘッダ：`x-api-key` / `anthropic-version: 2023-06-01`
 モデル：`claude-sonnet-5`（環境変数 `ANTHROPIC_MODEL` で変更可）
 
-### 用途は3つのみ
+### 用途
 
 | 関数 | 役割 | temperature |
 |---|---|---|
 | `extract_keywords()` | 主要キーワードを10個推定（JSON配列で出力、2026-08-21：8個から変更） | 0.0 |
 | `explain_competitors()` | 競合との数値差分を自然文化 | 0.3 |
 | `improvement_advice()` | 顧客向けの改善アドバイス文（4〜5文・300字以内、2026-08-19：営業トーク要約から改称） | 0.3 |
+| `category_advice()` | カテゴリ別スコアの改善アドバイス（1〜2文・100字以内） | 0.3 |
+| `filter_same_industry_candidates()` | 競合候補が自社と同じ業種・サービスかのYES/NO判定（点数には使わない、候補の足切り専用。2026-08-24追加） | 0.0 |
 
 ### 絶対に守ること
 
@@ -89,12 +91,14 @@ DataForSEO側のステータスは `status_code`（全体）と `tasks[0].status
 - 出力はプレーンテキスト（Markdown記法を使わせない）。画面にそのまま表示するため
 - `improvement_advice()` は「〜という状態です」の現状説明ではなく「〜を改善しましょう」のように次の行動が分かるアドバイス文にする
 - JSON出力を期待する場合は、コードフェンスを除去してからパースする
+- `filter_same_industry_candidates()` は業種一致のYES/NO判定にのみ使用し、スコアリングには一切関与させない（CLAUDE.md「スコアはルールベース」の原則）
 
 ### 失敗時
 
 - `extract_keywords()` → ルールベースの候補生成にフォールバック（下記参照）
 - `explain_competitors()` → 競合解説を非表示、警告に記録
 - `improvement_advice()` → スコアと弱点項目から組み立てたテンプレート文にフォールバック
+- `filter_same_industry_candidates()` → 判定をスキップし、候補をそのまま通過させる（フェイルオープン）
 
 ### `extract_keywords()` のフォールバック（`_fallback_keywords()`、2026-08-19実装）
 

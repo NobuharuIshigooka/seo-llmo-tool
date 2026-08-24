@@ -165,6 +165,7 @@ async def _fetch_competitor_page(domain: str) -> CrawlResult | None:
 
 async def _run_competitors(
     job: Job,
+    own_page: CrawlResult,
     own_domain: str,
     serp_results: list[serp.SerpResult],
     warnings: list[str],
@@ -175,6 +176,10 @@ async def _run_competitors(
     候補プールは max_competitors より多めに取得し、自動除外で減った分を確保する。ここで実クロールした
     結果は crawl.py 側のキャッシュ（crawl:{url}）に載るため、後段の _run_competitor_comparison が
     同じドメインを再クロールしてもキャッシュヒットし、二重リクエストにはならない。
+
+    ドメインパターン・実測値の自動除外だけでは辞書サイト・Q&Aポータル（kotobank.jp・Yahoo!知恵袋等）
+    のような「見た目は普通だが業種が無関係」な候補を弾けないため、実クロール後にClaude APIで
+    自社との業種一致判定（llm.filter_same_industry_candidates）も行う（2026-08-24追加）。
     """
     job.emit_progress("competitors", STAGE_LABELS["competitors"])
     try:
@@ -182,13 +187,21 @@ async def _run_competitors(
         candidates = _pick_competitor_candidates(own_domain, serp_results, excluded)
 
         pages = await asyncio.gather(*(_fetch_competitor_page(d) for d in candidates))
-        competitor_domains = []
-        for domain, page in zip(candidates, pages):
-            if page is None or _is_auto_excluded_page(page):
-                continue
-            competitor_domains.append(domain)
-            if len(competitor_domains) >= settings.max_competitors:
-                break
+        surviving = [
+            (domain, page) for domain, page in zip(candidates, pages)
+            if page is not None and not _is_auto_excluded_page(page)
+        ]
+
+        if surviving:
+            try:
+                same_industry_domains = set(await llm.filter_same_industry_candidates(
+                    own_page.title, [(domain, page.title) for domain, page in surviving],
+                ))
+            except Exception:
+                same_industry_domains = {domain for domain, _ in surviving}
+            surviving = [(d, p) for d, p in surviving if d in same_industry_domains]
+
+        competitor_domains = [domain for domain, _ in surviving[: settings.max_competitors]]
 
         if not competitor_domains:
             warnings.append("競合サイトを検出できなかったため、競合比較セクションは表示されません。")
@@ -372,7 +385,7 @@ async def run_audit(job: Job, url: str, devices: list[str], keywords: list[str] 
         _run_psi(job, url, warnings),
     )
 
-    competitor_domains = await _run_competitors(job, own_domain, serp_results, warnings)
+    competitor_domains = await _run_competitors(job, page, own_domain, serp_results, warnings)
 
     score_result, advice, comparison, explanation = await _run_score_and_narrative(
         job, page, own_domain, keywords, serp_results, psi_results,

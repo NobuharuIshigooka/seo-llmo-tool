@@ -132,6 +132,7 @@ async def test_run_audit_completes_with_partial_failures_and_warnings():
          patch.object(pipeline.db, "get_excluded_domains", return_value=set()), \
          patch.object(pipeline.llm, "improvement_advice", new=AsyncMock(return_value="アドバイス文です。")), \
          patch.object(pipeline.llm, "category_advice", new=AsyncMock(return_value="カテゴリアドバイス文です。")), \
+         patch.object(pipeline.llm, "filter_same_industry_candidates", new=AsyncMock(side_effect=lambda own_title, candidates: [d for d, _ in candidates])), \
          patch.object(pipeline.llm, "explain_competitors", new=AsyncMock(return_value="解説文です。")):
         await pipeline.run_audit(job, "https://example.co.jp/", ["desktop"])
 
@@ -158,6 +159,7 @@ async def test_run_competitors_filters_out_auto_excluded_candidates():
     自動除外され、正常な候補のみが最終的な競合ドメインとして残ることを確認する。
     """
     job = Job(id="job-auto-exclude", created_by="user@example.co.jp")
+    own_page = _page()
     serp_results = [
         SerpResult(
             keyword="k1", device="desktop", rank=None,
@@ -172,16 +174,67 @@ async def test_run_competitors_filters_out_auto_excluded_candidates():
 
     async def fake_crawl(url):
         if "portal-heavy" in url:
-            return CrawlResult(url=url, body_text="十分な本文。" * 50, internal_link_count=150)
+            return CrawlResult(url=url, title="ポータル", body_text="十分な本文。" * 50, internal_link_count=150)
         if "empty-page" in url:
-            return CrawlResult(url=url, body_text="短い", internal_link_count=5)
-        return CrawlResult(url=url, body_text="十分な本文です。" * 50, internal_link_count=20)
+            return CrawlResult(url=url, title="空ページ", body_text="短い", internal_link_count=5)
+        return CrawlResult(url=url, title="競合タイトル", body_text="十分な本文です。" * 50, internal_link_count=20)
 
     with patch.object(pipeline, "crawl_fetch", new=AsyncMock(side_effect=fake_crawl)), \
-         patch.object(pipeline.db, "get_excluded_domains", return_value=set()):
-        result = await pipeline._run_competitors(job, "example.co.jp", serp_results, warnings=[])
+         patch.object(pipeline.db, "get_excluded_domains", return_value=set()), \
+         patch.object(pipeline.llm, "filter_same_industry_candidates", new=AsyncMock(side_effect=lambda own_title, candidates: [d for d, _ in candidates])):
+        result = await pipeline._run_competitors(job, own_page, "example.co.jp", serp_results, warnings=[])
 
     assert result == ["normal-competitor.co.jp"]
+
+
+async def test_run_competitors_filters_out_different_industry_candidates():
+    """自動除外を通過した候補でも、Claude APIの業種一致判定で「同じ業種ではない」と
+    判定されたドメイン（辞書サイト・Q&Aポータル等）は最終的な競合ドメインに含まれないことを確認する。
+    """
+    job = Job(id="job-industry-filter", created_by="user@example.co.jp")
+    own_page = _page()
+    serp_results = [
+        SerpResult(
+            keyword="k1", device="desktop", rank=None,
+            organic_domains=["kotobank.jp", "real-competitor.co.jp"],
+        ),
+    ]
+
+    async def fake_crawl(url):
+        if "kotobank" in url:
+            return CrawlResult(url=url, title="北野とは - コトバンク", body_text="辞書の説明文。" * 50, internal_link_count=18)
+        return CrawlResult(url=url, title="本物の競合サイト", body_text="競合の本文です。" * 50, internal_link_count=20)
+
+    async def fake_filter(own_title, candidates):
+        return [d for d, title in candidates if "コトバンク" not in title]
+
+    with patch.object(pipeline, "crawl_fetch", new=AsyncMock(side_effect=fake_crawl)), \
+         patch.object(pipeline.db, "get_excluded_domains", return_value=set()), \
+         patch.object(pipeline.llm, "filter_same_industry_candidates", new=AsyncMock(side_effect=fake_filter)):
+        result = await pipeline._run_competitors(job, own_page, "example.co.jp", serp_results, warnings=[])
+
+    assert result == ["real-competitor.co.jp"]
+
+
+async def test_run_competitors_industry_filter_failure_keeps_candidates():
+    """業種判定自体が失敗（Claude API障害等）した場合は、判定をスキップして自動除外後の
+    候補をそのまま通過させる（フェイルオープン、CLAUDE.md「部分成功」原則）。
+    """
+    job = Job(id="job-industry-filter-fail", created_by="user@example.co.jp")
+    own_page = _page()
+    serp_results = [
+        SerpResult(keyword="k1", device="desktop", rank=None, organic_domains=["real-competitor.co.jp"]),
+    ]
+
+    async def fake_crawl(url):
+        return CrawlResult(url=url, title="本物の競合サイト", body_text="競合の本文です。" * 50, internal_link_count=20)
+
+    with patch.object(pipeline, "crawl_fetch", new=AsyncMock(side_effect=fake_crawl)), \
+         patch.object(pipeline.db, "get_excluded_domains", return_value=set()), \
+         patch.object(pipeline.llm, "filter_same_industry_candidates", new=AsyncMock(side_effect=Exception("API down"))):
+        result = await pipeline._run_competitors(job, own_page, "example.co.jp", serp_results, warnings=[])
+
+    assert result == ["real-competitor.co.jp"]
 
 
 async def test_run_audit_continues_when_serp_fails_entirely():

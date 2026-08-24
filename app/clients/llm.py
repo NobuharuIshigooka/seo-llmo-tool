@@ -170,6 +170,48 @@ async def explain_competitors(own_domain: str, comparison: list[dict]) -> str | 
         return None
 
 
+async def filter_same_industry_candidates(own_title: str, candidates: list[tuple[str, str]]) -> list[str]:
+    """競合候補のうち、自社と同じ業種・サービスを扱っているとみられるドメインのみを返す。
+
+    候補は (domain, title) のタプルのリスト。辞書・Q&Aポータル（kotobank.jp・Yahoo!知恵袋等）のように
+    ドメインパターンや実測値の自動除外（pipeline.py）では弾けない「見た目は普通のサイトだが業種が
+    無関係」なケースに対応する（2026-08-24追加）。スコアには一切使わない、競合候補の足切り専用。
+    判定不能時（API失敗・出力形式不正）は全候補をそのまま通す（フェイルオープン。CLAUDE.md
+    「部分成功」原則）。
+    """
+    if not candidates:
+        return []
+
+    candidates_text = "\n".join(f"{i + 1}. {domain}: {title}" for i, (domain, title) in enumerate(candidates))
+    prompt = f"""自社サイトのタイトルと、検索結果で見つかった候補サイトのタイトル一覧です。\
+各候補が自社と同じ業種・サービスを扱っているか（本当の競合関係にあるか）を判定してください。
+
+自社サイトのタイトル: {own_title}
+
+候補サイト一覧:
+{candidates_text}
+
+辞書サイト・Q&Aポータル・用語解説ページなど、自社と同じ業種・サービスを扱っていない候補は「同じ業種ではない」と判定してください。
+タイトルの情報のみを根拠に判定し、推測で業種を決めつけないでください。
+出力は各候補が同じ業種かどうかを表すJSON配列のみとしてください（例: [true, false, true]）。\
+配列の要素数は候補の数と同じにし、説明文は一切出力しないでください。"""
+
+    try:
+        response = await _client().messages.create(
+            model=settings.anthropic_model,
+            max_tokens=256,
+            temperature=0.0,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = _strip_code_fence(response.content[0].text)
+        flags = json.loads(raw)
+        if not isinstance(flags, list) or len(flags) != len(candidates) or not all(isinstance(f, bool) for f in flags):
+            raise LlmError("業種判定の出力形式が不正です")
+        return [domain for (domain, _), is_same in zip(candidates, flags) if is_same]
+    except Exception:
+        return [domain for domain, _ in candidates]
+
+
 def _fallback_improvement_advice(total_score: int, band: str, weak_points: list[str]) -> str:
     band_text = {
         "good": "全体として良好な状態です。",

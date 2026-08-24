@@ -194,3 +194,37 @@ async def test_category_advice_falls_back_on_failure():
         result = await llm.category_advice("テクニカルSEO", "poor", _CATEGORY_ITEMS)
 
     assert "モバイル対応" in result
+
+
+async def test_filter_same_industry_candidates_returns_matching_only():
+    mock_create = AsyncMock(return_value=_mock_response("[true, false]"))
+    with patch.object(llm, "_client", return_value=SimpleNamespace(messages=SimpleNamespace(create=mock_create))):
+        result = await llm.filter_same_industry_candidates(
+            "〇〇病院｜内科・外科",
+            [("real-competitor.co.jp", "△△クリニック"), ("kotobank.jp", "北野とは - コトバンク")],
+        )
+
+    assert result == ["real-competitor.co.jp"]
+
+
+async def test_filter_same_industry_candidates_empty_input_returns_empty():
+    result = await llm.filter_same_industry_candidates("〇〇病院", [])
+    assert result == []
+
+
+async def test_filter_same_industry_candidates_falls_back_on_failure():
+    mock_create = AsyncMock(side_effect=Exception("api error"))
+    candidates = [("a.co.jp", "A社"), ("b.co.jp", "B社")]
+    with patch.object(llm, "_client", return_value=SimpleNamespace(messages=SimpleNamespace(create=mock_create))):
+        result = await llm.filter_same_industry_candidates("自社タイトル", candidates)
+
+    assert result == ["a.co.jp", "b.co.jp"]  # 判定失敗時はフェイルオープンで全候補を通す
+
+
+async def test_filter_same_industry_candidates_falls_back_on_length_mismatch():
+    mock_create = AsyncMock(return_value=_mock_response("[true]"))  # 候補数2に対し要素数1（不正な出力）
+    candidates = [("a.co.jp", "A社"), ("b.co.jp", "B社")]
+    with patch.object(llm, "_client", return_value=SimpleNamespace(messages=SimpleNamespace(create=mock_create))):
+        result = await llm.filter_same_industry_candidates("自社タイトル", candidates)
+
+    assert result == ["a.co.jp", "b.co.jp"]
