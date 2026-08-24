@@ -733,6 +733,46 @@ SerpApiの残枠・料金の問題から、他のSERPプロバイダへの切り
   表示されるか）。今回の教訓として、Secret Manager値を更新する際は`.env`更新だけで終わらせず
   同時にSecret側も更新する運用を徹底すること
 
+### 2026-08-24（同日）：競合比較に無関係サイトが混入する問題を修正（自動除外を導入）
+
+上記のDataForSEO切替後、ユーザーが実診断したところ「競合3社との比較」に
+`kango-roo.com`（看護師向け情報サイト、業種的に無関係）・`support.google.com`（Googleヘルプ、
+内部リンク166件）・`docomo.ne.jp`（本文8文字、実質クロール失敗）という無関係なドメインが
+選ばれた。原因は診断対象サイトが全キーワードで検索結果20位圏外だったため、`docs/requirements.md`
+4.5の選定ルール「検索結果1〜5位に入り、かつ自社より上位表示された回数が多い順」により、
+Google検索結果の1〜5位に出てくるあらゆる大手・公式サイトが無条件で競合候補になり得る、という
+仕様上の弱点が顕在化したもの（DataForSEO API自体の不具合ではない）。
+
+ユーザーがまず手動除外リスト（`/admin/excluded-domains`）に3ドメインを追加して当面の表示を修正。
+その後、同様の問題が今後も起きうるため、手動除外に加えて自動除外の仕組みを追加した
+（ユーザー要望「自動化を実装、手動の機能も残す」）。
+
+- `app/pipeline.py`
+  - `_pick_competitors()`を`_pick_competitor_candidates()`にリネームし、確定社数
+    （`max_competitors`＝3）ではなく候補プール（`COMPETITOR_CANDIDATE_POOL_SIZE=10`）を返すよう変更。
+    ドメインパターンによる自動除外（`_is_auto_excluded_domain()`）もここで適用
+  - `_is_auto_excluded_domain()`：`.go.jp`/`.ac.jp`/`.lg.jp`（官公庁・教育機関）、大手IT・
+    プラットフォームのサポート/ヘルプページ（`support.google.com`等）・大手キャリア
+    （`docomo.ne.jp`等）、SNS・動画プラットフォーム（`youtube.com`等）をパターンマッチで判定
+  - `_is_auto_excluded_page()`：実クロール後の`CrawlResult`から、内部リンク数100以上
+    （大規模ポータル的構造）・本文文字数100文字未満（クロール実質失敗）を判定
+  - `_run_competitors()`（工程5）を、候補プールを実クロール→`_is_auto_excluded_page()`で
+    フィルタ→上位`max_competitors`件を確定、という流れに変更。工程5でのクロール結果は
+    `crawl.py`のキャッシュ（`crawl:{url}`）に乗るため、工程6の`_run_competitor_comparison()`が
+    同じドメインを再クロールしてもキャッシュヒットし二重リクエストにはならない
+  - 手動除外リスト（`db.get_excluded_domains()`、管理画面から追加・削除可能）の機能自体は
+    変更せず、自動除外と併用（どちらか一方に該当すれば候補から外れる）
+- `docs/requirements.md` 4.5：自動除外の仕様（判定基準・候補プール方式）を追記。手動除外機能は
+  維持する旨を明記
+- `docs/architecture.md`：工程5の所要時間目安を10〜15秒→15〜25秒に更新（候補プール拡大により
+  クロール数が増えるため。ただし`MAX_CONCURRENT_BROWSERS=2`のセマフォで律速されるため単純比例ではない）
+- テスト：`tests/test_pipeline.py`の`_pick_competitors`参照テストを`_pick_competitor_candidates`に
+  リネーム・`pool_size`引数対応、`_is_auto_excluded_domain`/`_is_auto_excluded_page`の単体テスト、
+  `_run_competitors`が実クロール結果に基づいて自動除外候補を弾くことを検証する統合テストを追加。
+  全118件パス
+- **未実施**：実サイトでの動作確認（今回の`kitanodai.jp`で再診断し、`kango-roo.com`等が実際に
+  弾かれることを確認）。Cloud Buildでの再ビルド・Cloud Runへの再デプロイもこれから
+
 ---
 
 ## 更新ルール

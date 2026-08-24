@@ -43,14 +43,52 @@ def _domain_of(url: str) -> str:
 
 
 COMPETITOR_CANDIDATE_MAX_RANK = 5  # requirements.md 4.5：候補は検索結果1〜5位のみ
+COMPETITOR_CANDIDATE_POOL_SIZE = 10  # 自動除外フィルタ適用前の候補プール（実クロールして判定するため多めに取る）
+
+# 自動除外：管理画面の手動除外リストとは別に、明らかに競合ではないドメインパターンを機械的に弾く
+# （requirements.md 4.5「除外対象：ポータルサイト・比較サイト」の運用上の拡張、2026-08-24追加）
+COMPETITOR_AUTO_EXCLUDE_DOMAIN_SUFFIXES = (
+    ".go.jp", ".ac.jp", ".lg.jp",  # 官公庁・教育機関
+)
+COMPETITOR_AUTO_EXCLUDE_DOMAIN_PATTERNS = (
+    # 大手IT・プラットフォームのサポート/ヘルプページ
+    "support.google.com", "support.apple.com", "support.microsoft.com",
+    "help.", "support.", "docomo.ne.jp", "au.com", "softbank.jp",
+    # SNS・動画プラットフォーム（単一ページの比較指標が意味をなさない）
+    "youtube.com", "facebook.com", "twitter.com", "x.com", "instagram.com",
+    "line.me", "tiktok.com",
+)
+COMPETITOR_AUTO_EXCLUDE_MAX_INTERNAL_LINKS = 100  # 大規模ポータル的構造（内部リンク過多）
+COMPETITOR_AUTO_EXCLUDE_MIN_BODY_CHARS = 100  # クロール実質失敗（本文が極端に短い）
 
 
-def _pick_competitors(
+def _is_auto_excluded_domain(domain: str) -> bool:
+    """ドメインパターンのみで判定できる自動除外（実クロール不要）。"""
+    if domain.endswith(COMPETITOR_AUTO_EXCLUDE_DOMAIN_SUFFIXES):
+        return True
+    return any(pattern in domain for pattern in COMPETITOR_AUTO_EXCLUDE_DOMAIN_PATTERNS)
+
+
+def _is_auto_excluded_page(page: CrawlResult) -> bool:
+    """実クロール後の指標による自動除外（内部リンク数・本文文字数）。"""
+    if page.internal_link_count >= COMPETITOR_AUTO_EXCLUDE_MAX_INTERNAL_LINKS:
+        return True
+    char_count = len(re.sub(r"\s+", "", page.body_text))
+    return char_count < COMPETITOR_AUTO_EXCLUDE_MIN_BODY_CHARS
+
+
+def _pick_competitor_candidates(
     own_domain: str,
     serp_results: list[serp.SerpResult],
     excluded_domains: set[str],
+    pool_size: int = COMPETITOR_CANDIDATE_POOL_SIZE,
 ) -> list[str]:
-    """検索結果1〜5位に入り、かつ自社より上位表示された回数が多い順に競合ドメインを最大 max_competitors 件抽出する。"""
+    """検索結果1〜5位に入り、かつ自社より上位表示された回数が多い順に競合候補を最大 pool_size 件抽出する。
+
+    手動除外リスト（excluded_domains）・ドメインパターンによる自動除外の両方をここで適用する。
+    内部リンク数・本文文字数による自動除外は実クロールが必要なため、呼び出し側
+    （_run_competitors）が候補を実クロールした後に別途適用する。
+    """
     counter: Counter[str] = Counter()
     for result in serp_results:
         own_rank = result.rank
@@ -59,11 +97,12 @@ def _pick_competitors(
                 break
             if domain == own_domain or domain in excluded_domains or not domain:
                 continue
+            if _is_auto_excluded_domain(domain):
+                continue
             if own_rank is None or position < own_rank:
                 counter[domain] += 1
 
-    ranked = [domain for domain, _ in counter.most_common(settings.max_competitors)]
-    return ranked
+    return [domain for domain, _ in counter.most_common(pool_size)]
 
 
 async def _run_crawl(job: Job, url: str) -> CrawlResult:
@@ -117,16 +156,40 @@ async def _run_psi(job: Job, url: str, warnings: list[str]) -> dict[str, psi.Psi
     return results
 
 
+async def _fetch_competitor_page(domain: str) -> CrawlResult | None:
+    try:
+        return await crawl_fetch(f"https://{domain}/")
+    except CrawlError:
+        return None
+
+
 async def _run_competitors(
     job: Job,
     own_domain: str,
     serp_results: list[serp.SerpResult],
     warnings: list[str],
 ) -> list[str]:
+    """競合候補を抽出し、実クロールして自動除外ルール（内部リンク数過多・本文極端に短い）を
+    適用したうえで上位 max_competitors 件を確定する（2026-08-24：手動除外リストに加え自動除外を導入）。
+
+    候補プールは max_competitors より多めに取得し、自動除外で減った分を確保する。ここで実クロールした
+    結果は crawl.py 側のキャッシュ（crawl:{url}）に載るため、後段の _run_competitor_comparison が
+    同じドメインを再クロールしてもキャッシュヒットし、二重リクエストにはならない。
+    """
     job.emit_progress("competitors", STAGE_LABELS["competitors"])
     try:
         excluded = db.get_excluded_domains()
-        competitor_domains = _pick_competitors(own_domain, serp_results, excluded)
+        candidates = _pick_competitor_candidates(own_domain, serp_results, excluded)
+
+        pages = await asyncio.gather(*(_fetch_competitor_page(d) for d in candidates))
+        competitor_domains = []
+        for domain, page in zip(candidates, pages):
+            if page is None or _is_auto_excluded_page(page):
+                continue
+            competitor_domains.append(domain)
+            if len(competitor_domains) >= settings.max_competitors:
+                break
+
         if not competitor_domains:
             warnings.append("競合サイトを検出できなかったため、競合比較セクションは表示されません。")
     except Exception as exc:
@@ -149,13 +212,6 @@ def _comparison_metrics(page: CrawlResult) -> dict:
         "internal_link_count": page.internal_link_count,
         "eeat_count": len(scoring.detect_eeat(page)),
     }
-
-
-async def _fetch_competitor_page(domain: str) -> CrawlResult | None:
-    try:
-        return await crawl_fetch(f"https://{domain}/")
-    except CrawlError:
-        return None
 
 
 async def _run_competitor_comparison(

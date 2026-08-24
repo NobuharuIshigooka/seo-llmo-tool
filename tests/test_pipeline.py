@@ -26,7 +26,7 @@ def _page() -> CrawlResult:
     )
 
 
-def test_pick_competitors_ranks_by_outrank_count():
+def test_pick_competitor_candidates_ranks_by_outrank_count():
     serp_results = [
         SerpResult(
             keyword="k1", device="desktop", rank=5,
@@ -37,37 +37,71 @@ def test_pick_competitors_ranks_by_outrank_count():
             organic_domains=["a.co.jp", "example.co.jp"],
         ),
     ]
-    result = pipeline._pick_competitors("example.co.jp", serp_results, excluded_domains=set())
+    result = pipeline._pick_competitor_candidates("example.co.jp", serp_results, excluded_domains=set())
     assert result[0] == "a.co.jp"  # 2キーワードとも自社より上位
     assert "example.co.jp" not in result
 
 
-def test_pick_competitors_excludes_domains():
+def test_pick_competitor_candidates_excludes_domains():
     serp_results = [
         SerpResult(keyword="k1", device="desktop", rank=5, organic_domains=["a.co.jp", "example.co.jp"]),
     ]
-    result = pipeline._pick_competitors("example.co.jp", serp_results, excluded_domains={"a.co.jp"})
+    result = pipeline._pick_competitor_candidates("example.co.jp", serp_results, excluded_domains={"a.co.jp"})
     assert result == []
 
 
-def test_pick_competitors_counts_all_when_own_rank_missing():
+def test_pick_competitor_candidates_counts_all_when_own_rank_missing():
     serp_results = [
         SerpResult(keyword="k1", device="desktop", rank=None, organic_domains=["a.co.jp", "example.co.jp"]),
     ]
-    result = pipeline._pick_competitors("example.co.jp", serp_results, excluded_domains=set())
+    result = pipeline._pick_competitor_candidates("example.co.jp", serp_results, excluded_domains=set())
     assert result == ["a.co.jp"]
 
 
-def test_pick_competitors_excludes_domains_ranked_below_5th():
+def test_pick_competitor_candidates_excludes_domains_ranked_below_5th():
     serp_results = [
         SerpResult(
             keyword="k1", device="desktop", rank=None,
             organic_domains=["a.co.jp", "b.co.jp", "c.co.jp", "d.co.jp", "e.co.jp", "f.co.jp", "example.co.jp"],
         ),
     ]
-    result = pipeline._pick_competitors("example.co.jp", serp_results, excluded_domains=set())
+    result = pipeline._pick_competitor_candidates("example.co.jp", serp_results, excluded_domains=set(), pool_size=3)
     assert "f.co.jp" not in result
-    assert set(result) == {"a.co.jp", "b.co.jp", "c.co.jp"}  # max_competitors=3 で上位3件のみ
+    assert set(result) == {"a.co.jp", "b.co.jp", "c.co.jp"}  # pool_size=3 で上位3件のみ
+
+
+def test_pick_competitor_candidates_pool_size_larger_than_max_competitors():
+    serp_results = [
+        SerpResult(
+            keyword="k1", device="desktop", rank=None,
+            organic_domains=["a.co.jp", "b.co.jp", "c.co.jp", "d.co.jp", "e.co.jp"],
+        ),
+    ]
+    result = pipeline._pick_competitor_candidates("example.co.jp", serp_results, excluded_domains=set())
+    assert set(result) == {"a.co.jp", "b.co.jp", "c.co.jp", "d.co.jp", "e.co.jp"}  # 既定pool_size=10なので全件残る
+
+
+def test_is_auto_excluded_domain_matches_official_and_platform_patterns():
+    assert pipeline._is_auto_excluded_domain("city.example.go.jp") is True
+    assert pipeline._is_auto_excluded_domain("support.google.com") is True
+    assert pipeline._is_auto_excluded_domain("docomo.ne.jp") is True
+    assert pipeline._is_auto_excluded_domain("youtube.com") is True
+    assert pipeline._is_auto_excluded_domain("normal-competitor.co.jp") is False
+
+
+def test_is_auto_excluded_page_by_internal_link_count():
+    page = CrawlResult(url="https://x.co.jp/", body_text="十分な本文。" * 50, internal_link_count=100)
+    assert pipeline._is_auto_excluded_page(page) is True
+
+
+def test_is_auto_excluded_page_by_short_body():
+    page = CrawlResult(url="https://x.co.jp/", body_text="短い", internal_link_count=5)
+    assert pipeline._is_auto_excluded_page(page) is True
+
+
+def test_is_auto_excluded_page_false_for_normal_page():
+    page = CrawlResult(url="https://x.co.jp/", body_text="十分な本文です。" * 30, internal_link_count=20)
+    assert pipeline._is_auto_excluded_page(page) is False
 
 
 async def test_run_audit_emits_error_and_stops_on_crawl_failure():
@@ -117,6 +151,37 @@ async def test_run_audit_completes_with_partial_failures_and_warnings():
     ]
     assert set(result["competitor_comparison"].keys()) == {"example.co.jp", "a.co.jp"}
     assert result["competitor_explanation"] == "解説文です。"
+
+
+async def test_run_competitors_filters_out_auto_excluded_candidates():
+    """候補にドメインパターン一致・内部リンク過多・本文極端に短いページが混じっていても、
+    自動除外され、正常な候補のみが最終的な競合ドメインとして残ることを確認する。
+    """
+    job = Job(id="job-auto-exclude", created_by="user@example.co.jp")
+    serp_results = [
+        SerpResult(
+            keyword="k1", device="desktop", rank=None,
+            organic_domains=[
+                "support.google.com",  # ドメインパターンで自動除外
+                "portal-heavy.co.jp",  # 実クロール後、内部リンク過多で自動除外
+                "empty-page.co.jp",    # 実クロール後、本文極端に短く自動除外
+                "normal-competitor.co.jp",  # 正常な競合として残る
+            ],
+        ),
+    ]
+
+    async def fake_crawl(url):
+        if "portal-heavy" in url:
+            return CrawlResult(url=url, body_text="十分な本文。" * 50, internal_link_count=150)
+        if "empty-page" in url:
+            return CrawlResult(url=url, body_text="短い", internal_link_count=5)
+        return CrawlResult(url=url, body_text="十分な本文です。" * 50, internal_link_count=20)
+
+    with patch.object(pipeline, "crawl_fetch", new=AsyncMock(side_effect=fake_crawl)), \
+         patch.object(pipeline.db, "get_excluded_domains", return_value=set()):
+        result = await pipeline._run_competitors(job, "example.co.jp", serp_results, warnings=[])
+
+    assert result == ["normal-competitor.co.jp"]
 
 
 async def test_run_audit_continues_when_serp_fails_entirely():
