@@ -809,10 +809,41 @@ Google検索結果の1〜5位に出てくるあらゆる大手・公式サイト
   フェイルオープン・出力形式不正時フェイルオープンのテストを追加。`tests/test_pipeline.py`に
   業種判定で候補が弾かれるケース・判定失敗時にフェイルオープンで候補が残るケースの統合テストを追加。
   既存の自動除外テスト・統合テストも新引数・新モックに追随。全124件パス
-- **未実施**：実サイトでの動作確認（`kitanodai.jp`で再診断し、`kotobank.jp`等の辞書・Q&Aサイトが
-  実際に弾かれることを確認）。Cloud Buildでの再ビルド・Cloud Runへの再デプロイもこれから。
-  Claude API呼び出しが1回（工程5）増えるため、1診断あたりのAnthropic API従量課金がわずかに増加する
-  （`docs/requirements.md`8.1「Claude APIは1診断あたり数円」の範囲内とみられるが、実測はしていない）
+- Cloud Buildでビルド（image digest `sha256:77ab82a1...`）・`gcloud run deploy`で本番反映済み
+  （revision `seo-llmo-tool-00026-kfk`、100%トラフィック）
+- ユーザーが`kitanodai.jp`で実診断し、動作確認完了。以降の質疑応答を受けて2件追記対応した
+  （下記2エントリ参照）
+- **未実施**：1診断あたりのAnthropic API従量課金の実測（Claude API呼び出しが工程5で1回増えたが、
+  `docs/requirements.md`8.1「Claude APIは1診断あたり数円」の範囲内とみられる）
+
+### 2026-08-24（同日）：表記統一「FAQ / QA構造化データ」→「FAQ / Q&A構造化データ」
+
+ユーザーから「FAQ / QA構造化データのQAはQ&Aのことか、下のQ&A形式の見出しと同じものを指すなら
+表記を揃えてほしい」という指摘。同じ意味（Schema.orgのQ&A系構造化データ）を指しており、
+下段の項目は既に`&`付き表記だったため、上段側を揃えた。
+
+- `app/scoring.py`：`ScoreItem`のラベル文字列（画面表示に直結）・コメント2箇所を変更
+- `docs/scoring.md`・`docs/requirements.md`・`docs/progress.md`（過去ログ本文、ユーザー発言の
+  引用部分は履歴として原文のまま残した）・`tests/test_scoring.py`のアサーション文字列を追随
+- `docs/scoring.md`にFAQPage/QAPage/HowToそれぞれの意味（Schema.org型定義）も追記
+  （ユーザーからの「QAとは」という質問を受けて、今後同じ質問が出ないようドキュメント化）
+- テンプレート（`report.html`・`audit.js`）は`item.label`を汎用表示する実装のため変更不要
+- 全124件パス。Cloud Buildでビルド（image digest `sha256:211ec5e1...`）・`gcloud run deploy`で
+  本番反映済み（revision `seo-llmo-tool-00027-nnx`、100%トラフィック）
+
+### 2026-08-24（同日）：AI Overviewデータの性質をdocsに明記
+
+ユーザーから「AI Overviewの表示有無・引用データは、検索するユーザーの場所やタイミングに依存するのか、
+それともGoogle公式のデータなのか」という質問があった。回答：SerpApi・DataForSEOいずれも
+Google公式APIではなく、実際にGoogle検索結果ページをスクレイピングして構造化データに変換する
+サードパーティサービスであり、検索地域（`location_name=Japan`固定）・取得タイミング
+（AI Overviewは数時間〜数日単位で変動しうる）・パーソナライゼーションなし（ログイン・検索履歴なし
+の状態で検索）という条件に依存した、ある時点でのスナップショットである。
+
+- `docs/api-integrations.md` 1章に「データの性質」節を新設し、上記の依存要因と、商談での
+  説明時の注意（「Googleが絶対にこう表示する」ではなく「診断実行時点でこう観測された」という
+  前提で伝えること）を明記
+- コード変更なし（既存の実装・仕様通りの挙動を文書化しただけ）
 
 ---
 
