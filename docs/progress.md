@@ -705,6 +705,34 @@ SerpApiの残枠・料金の問題から、他のSERPプロバイダへの切り
 - **未実施**：ユーザーによる再度のブラウザでの実診断確認（今度こそ検索順位・競合比較が
   正しく表示されるか）
 
+### 2026-08-24（同日）：Secret ManagerのDataForSEO認証情報が古い値のままだった不具合を修正
+
+再デプロイ後もユーザーが実診断すると「検索順位の取得にすべて失敗したため、順位項目は空です」
+という警告が出続けた（前回の「未対応のSERP_PROVIDER」エラーとは別の失敗）。DataForSEO API自体の
+不具合ではないか疑われたが、切り分けの結果、原因はアプリ側の設定不備と判明した。
+
+**切り分け手順**：(1) ローカル`.env`の認証情報で直接DataForSEO APIを叩く→成功（`status_code: 20000`）。
+(2) `serp.get_provider()`経由（ローカル）でも同様に成功。(3) Secret Managerに登録済みの
+`DATAFORSEO_LOGIN`/`DATAFORSEO_PASSWORD`をハッシュ比較したところ、ローカル`.env`の値と
+**一致しなかった**。(4) Secret Manager側の値で直接APIを叩くと`401 Unauthorized`
+（`status_code: 40100`）。これでDataForSEO API自体は正常で、本番が参照する認証情報が
+古い（無効な）ままだったことが確定した。
+
+原因：Secret Managerの`DATAFORSEO_LOGIN`/`DATAFORSEO_PASSWORD`は2026-08-18の初回登録時点の値
+（アカウント検証完了前）のままで、その後ユーザーが`.env`側の値を更新した際にSecret Manager側は
+更新していなかった。ユーザーがDataForSEOダッシュボード（API Access画面）で現在の値と`.env`の
+値が一致することを確認した上で対応した。
+
+- `gcloud secrets versions add DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD` で、ローカル`.env`の
+  現在の値を新バージョン（version 2）として登録
+- Cloud Runの`secretKeyRef`は`key: latest`を参照する設定だが、**既に起動中のリビジョンは
+  環境変数を再読み込みしない**ため、`gcloud run services update --update-labels`で新リビジョンを
+  強制作成（revision `seo-llmo-tool-00024-zwv`、100%トラフィック）
+- 新Secretバージョンのハッシュがローカル`.env`と一致することを確認済み。`/auth/login`も正常
+- **未実施**：ユーザーによる実診断での最終確認（検索順位・AI Overview・競合比較が正しく
+  表示されるか）。今回の教訓として、Secret Manager値を更新する際は`.env`更新だけで終わらせず
+  同時にSecret側も更新する運用を徹底すること
+
 ---
 
 ## 更新ルール
