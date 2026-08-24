@@ -634,9 +634,56 @@ SerpApiの残枠・料金の問題から、他のSERPプロバイダへの切り
 - テスト：`tests/test_scoring.py`・`tests/test_crawler.py`から構造化データ関連の削除済み項目への
   参照を除去し、統合後のFAQ/QA構造化データがJSON-LD型検出を引き続きカバーすることを検証する
   テストを追加。全107件パス
-- **未実施**：Cloud Buildでの再ビルド・Cloud Runへの再デプロイ（前回デプロイ済みのrevision
-  `seo-llmo-tool-00020-4fc`は今回削除した構造化データ項目を含んだ状態のため、この修正を反映するには
-  再デプロイが必要）
+- Cloud Buildでビルド（image digest `sha256:f3b7b637...`）・`gcloud run deploy`で本番反映済み
+  （revision `seo-llmo-tool-00021-86z`、100%トラフィック、2026-08-24）
+
+### 2026-08-24：DataForSEO SERP APIプロバイダを実装（アカウント検証完了・ユーザー作業）
+
+上記のLLMO配点変更と同日、保留していたDataForSEOアカウント検証（`Please verify your account`で
+テスト呼び出しがブロックされていた件）がユーザー側の作業で完了した。`docs/progress.md`
+「2026-08-21：SerpApiからの移行先調査」に記録した残タスク（テストリクエスト再実行→
+`DataForSeoProvider`実装→ドキュメント追記→切替テスト）を実施した。
+
+- テストリクエスト（`serp/google/organic/live/advanced`）を再実行し成功を確認（`status_code: 20000`）。
+  レスポンスは`tasks[0].result[0].items[]`を`type`（organic/ai_overview等）で判別する構造で、
+  AI Overviewの引用元は`items[type=ai_overview].items[].references[].domain/url`
+  （SerpApiの`ai_overview.references[].link`よりネストが1階層深い）で取得できることを確認した。
+  desktop（`os=windows`）・mobile（`os=android`）両方でテスト成功
+- `app/config.py`：`dataforseo_login`・`dataforseo_password`を`Settings`に追加（2026-08-19の
+  Backlinks廃止時に一度削除された設定項目だが、用途が異なるSERP用として再度必要になったため復活）
+- `app/clients/serp.py`：`DataForSeoProvider`を実装（`SerpProvider`プロトコル準拠）。
+  Basic認証（login:passwordをBase64化）でPOSTし、`items`をtype判別してSerpApiと同じ
+  `SerpResult`形式に変換する。ステータスは`status_code`（全体）と`tasks[0].status_code`
+  （タスク単位）の両方を検証し、いずれも`20000`以外は`SerpError`として扱う（部分成功方針）。
+  `get_provider()`に`SERP_PROVIDER=dataforseo`の分岐を追加
+- `.env.example`・`docs/api-integrations.md`・`docs/deployment.md`：DataForSEO SERP用の
+  環境変数・エンドポイント仕様・SerpApiとのレスポンス構造対応表を追記
+- テスト：`tests/test_serp.py`に`DataForSeoProvider`の順位判定・AI Overview引用判定・
+  タスクエラー・HTTP失敗時のテストを追加。全112件パス
+- **`SERP_PROVIDER`は本番・ローカルとも`serpapi`のまま変更していない。** 実際の切り替えは
+  別途ユーザー判断で実施する（Secret Manager・Cloud Run環境変数には`DATAFORSEO_LOGIN`/
+  `DATAFORSEO_PASSWORD`は2026-08-18時点で既に配線済みのため、切り替え時の追加のGCP作業は不要）
+- **未実施**：`SERP_PROVIDER=dataforseo`への実際の切り替え、切り替え後の実診断での動作確認、
+  DataForSEO側の料金消費状況の確認（無料クレジット$1の残量等）
+
+### 2026-08-24（同日）：SerpApiの使用制限によりSERP_PROVIDERをDataForSEOに切り替え
+
+ユーザーがSerpApiダッシュボードで残枠を確認したところ使用制限にかかっており、SerpApi経由での
+検索順位・AI Overview取得ができない状態と判明した（部分成功設計により診断自体は継続するが、
+検索順位表・LLMOのAI Overview評価が実質機能していない状態だった）。実装済みの`DataForSeoProvider`
+に切り替えることをユーザーと合意し、即座に切替を実施した。
+
+- ローカル`.env`の`SERP_PROVIDER`を`serpapi`→`dataforseo`に変更
+- `.venv/bin/python`で`serp.get_provider()`が`DataForSeoProvider`を返し、実際に
+  `SEO対策 費用`で検索してAI Overview・上位表示ドメインが取得できることをローカルで確認
+- 本番：`gcloud run services update seo-llmo-tool --region=asia-northeast1 --project=seo-llmo-tool
+  --update-env-vars="SERP_PROVIDER=dataforseo"` でCloud Runの環境変数を追加・即時反映
+  （revision `seo-llmo-tool-00022-4jk`、100%トラフィック）。Secret Managerの
+  `DATAFORSEO_LOGIN`/`DATAFORSEO_PASSWORD`は既に配線済みのため追加のGCP作業は不要だった
+- デプロイ後、`/auth/login`が正常にGoogle認証へリダイレクトすることを確認（アプリ起動自体に問題なし）
+- **未実施**：本番環境での実診断1件を通した動作確認（ユーザーによるブラウザでの目視確認が必要）、
+  DataForSEO側の料金消費状況の確認（無料クレジット$1の残量、Live $0.002/リクエストでの
+  実消費ペース）、SerpApiの使用制限が解除された場合に`serpapi`へ戻すかどうかの判断
 
 ---
 

@@ -27,6 +27,8 @@ class Settings:
     # 外部API
     serp_provider: str = os.getenv("SERP_PROVIDER", "serpapi")
     serpapi_key: str = os.getenv("SERPAPI_KEY", "")
+    dataforseo_login: str = os.getenv("DATAFORSEO_LOGIN", "")
+    dataforseo_password: str = os.getenv("DATAFORSEO_PASSWORD", "")
     anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
     anthropic_model: str = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5")
     psi_api_key: str = os.getenv("PSI_API_KEY", "")

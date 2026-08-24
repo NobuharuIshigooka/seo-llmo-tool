@@ -16,12 +16,16 @@
 
 ### 外部API
 
-2026-08-19：DataForSEO Backlinks連携を廃止したため`DATAFORSEO_LOGIN`/`DATAFORSEO_PASSWORD`は不要になった。
+2026-08-19：DataForSEO Backlinks連携を廃止した（被リンク評価用途）。2026-08-24：
+DataForSEO SERP API（順位・AI Overview取得の代替プロバイダ）用として`DATAFORSEO_LOGIN`/
+`DATAFORSEO_PASSWORD`を再び使用する（用途が異なる点に注意。`docs/api-integrations.md` 1章参照）。
 
 | 変数 | 内容 |
 |---|---|
-| `SERP_PROVIDER` | `serpapi`（既定） |
+| `SERP_PROVIDER` | `serpapi`（既定） / `dataforseo` |
 | `SERPAPI_KEY` | SerpApi のAPIキー |
+| `DATAFORSEO_LOGIN` | DataForSEO API Access画面の専用ログイン（`SERP_PROVIDER=dataforseo`時のみ必須） |
+| `DATAFORSEO_PASSWORD` | 同上のパスワード（app.dataforseo.comのログインパスワードとは別物） |
 | `ANTHROPIC_API_KEY` | Claude API キー |
 | `ANTHROPIC_MODEL` | 既定 `claude-sonnet-5` |
 | `PSI_API_KEY` | PageSpeed Insights APIキー |

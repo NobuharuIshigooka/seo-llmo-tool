@@ -1,4 +1,5 @@
 import asyncio
+import base64
 from dataclasses import dataclass, field
 from typing import Protocol
 from urllib.parse import urlparse
@@ -99,9 +100,98 @@ class SerpApiProvider:
                 raise SerpError(f"SerpApi 呼び出しに失敗しました: {keyword} ({device}) ({exc})") from exc
 
 
+class DataForSeoProvider:
+    """DataForSEO SERP API（Live）を使う SerpProvider 実装。
+
+    docs/api-integrations.md 1章「将来の移行」参照。SerpApi と異なりレスポンスは
+    `items` を type（organic / ai_overview 等）で判別する構造のため、パース処理は
+    SerpApiProvider とは別に持つ。
+    """
+
+    _ENDPOINT = "https://api.dataforseo.com/v3/serp/google/organic/live/advanced"
+
+    def __init__(self, login: str | None = None, password: str | None = None) -> None:
+        self._login = login or settings.dataforseo_login
+        self._password = password or settings.dataforseo_password
+
+    def _auth_header(self) -> dict:
+        credentials = base64.b64encode(f"{self._login}:{self._password}".encode()).decode()
+        return {"Authorization": f"Basic {credentials}"}
+
+    async def search(self, keyword: str, device: str, own_domain: str) -> SerpResult:
+        cache_key = f"serp:{device}:jp:{keyword}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            data = cached
+        else:
+            data = await self._fetch(keyword, device)
+            cache.set(cache_key, data, ttl_seconds=settings.serp_cache_ttl)
+
+        items = data.get("items", [])
+        organic_items = [i for i in items if i.get("type") == "organic"]
+        ai_overview_item = next((i for i in items if i.get("type") == "ai_overview"), None)
+
+        return SerpResult(
+            keyword=keyword,
+            device=device,
+            rank=self._rank_of(own_domain, organic_items),
+            ai_overview_shown=ai_overview_item is not None,
+            ai_overview_cited=self._ai_overview_cited(own_domain, ai_overview_item) if ai_overview_item else False,
+            organic_domains=[_normalize_domain(i.get("url", "")) for i in organic_items],
+        )
+
+    @staticmethod
+    def _rank_of(own_domain: str, organic_items: list[dict]) -> int | None:
+        for item in organic_items:
+            if _normalize_domain(item.get("url", "")) == own_domain:
+                return item.get("rank_absolute")
+        return None
+
+    @staticmethod
+    def _ai_overview_cited(own_domain: str, ai_overview_item: dict) -> bool:
+        for element in ai_overview_item.get("items") or []:
+            for ref in element.get("references") or []:
+                url = ref.get("url", "")
+                if url and _normalize_domain(url) == own_domain:
+                    return True
+        return False
+
+    async def _fetch(self, keyword: str, device: str) -> dict:
+        payload = [{
+            "keyword": keyword,
+            "location_name": "Japan",
+            "language_code": "ja",
+            "device": device,
+            "os": "windows" if device == "desktop" else "android",
+        }]
+        async with _semaphore:
+            try:
+                async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
+                    resp = await client.post(self._ENDPOINT, headers=self._auth_header(), json=payload)
+                    resp.raise_for_status()
+                    body = resp.json()
+            except Exception as exc:
+                raise SerpError(f"DataForSEO 呼び出しに失敗しました: {keyword} ({device}) ({exc})") from exc
+
+        if body.get("status_code") != 20000:
+            raise SerpError(f"DataForSEO エラー: {keyword} ({device}) {body.get('status_message')}")
+
+        tasks = body.get("tasks") or []
+        if not tasks or tasks[0].get("status_code") != 20000:
+            message = tasks[0].get("status_message") if tasks else "タスクが返りませんでした"
+            raise SerpError(f"DataForSEO タスクエラー: {keyword} ({device}) {message}")
+
+        results = tasks[0].get("result") or []
+        if not results:
+            return {"items": []}
+        return results[0]
+
+
 def get_provider() -> SerpProvider:
     if settings.serp_provider == "serpapi":
         return SerpApiProvider()
+    if settings.serp_provider == "dataforseo":
+        return DataForSeoProvider()
     raise SerpError(f"未対応の SERP_PROVIDER です: {settings.serp_provider}")
 
 

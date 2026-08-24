@@ -10,6 +10,8 @@
 | Google OAuth 2.0 | 認証 | 無料 |
 
 2026-08-19：DataForSEO Backlinks（被リンク・ドメインランク）連携を廃止した（ユーザー判断）。
+2026-08-24：DataForSEOはSERP API（検索順位・AI Overview、SerpApiの代替候補）用として別途
+利用を開始した。被リンク用途とは無関係で、廃止を撤回したものではない（1章参照）。
 
 ---
 
@@ -46,9 +48,21 @@
 
 ### 将来の移行
 
-DataForSEO SERP API（Liveモード）への切り替えを想定し、クライアントは抽象化しておく。`SerpProvider` プロトコルを定義し、`SerpApiProvider` / `DataForSeoProvider` を差し替え可能にする。環境変数 `SERP_PROVIDER` で選択。
+DataForSEO SERP API（Liveモード）への切り替えを想定し、クライアントは抽象化している。`SerpProvider` プロトコルを定義し、`SerpApiProvider` / `DataForSeoProvider`（`app/clients/serp.py`）を差し替え可能にした。環境変数 `SERP_PROVIDER`（`serpapi` / `dataforseo`）で選択する。**2026-08-24時点では引き続き `SERP_PROVIDER=serpapi` のまま運用しており、切り替えはユーザー判断待ち。**
 
-**進捗（2026-08-21）**：`DataForSeoProvider`は未実装。ユーザーがDataForSEOアカウントを登録し`.env`に認証情報を設定済みだが、アカウント検証待ちでテスト呼び出しがブロックされている（403）。次回はアカウント検証完了から再開する。詳細は`docs/progress.md`工程6の該当日付エントリを参照。
+**実装済み（2026-08-24）**：`DataForSeoProvider`。エンドポイントは `POST https://api.dataforseo.com/v3/serp/google/organic/live/advanced`、Basic認証（`DATAFORSEO_LOGIN`:`DATAFORSEO_PASSWORD`をBase64化）。リクエストボディは配列で、`keyword` / `location_name=Japan` / `language_code=ja` / `device`（`desktop`/`mobile`） / `os`（desktopは`windows`、mobileは`android`固定）を指定する。
+
+レスポンスは `tasks[0].result[0].items[]` を `type` で判別する構造。SerpApiとの対応は以下の通り。
+
+| 用途 | SerpApi | DataForSEO |
+|---|---|---|
+| 順位判定 | `organic_results[].link` / `.position` | `items[type=organic][].url` / `.rank_absolute` |
+| AI Overview表示判定 | `ai_overview` キーの有無 | `items`内に`type=ai_overview`の要素があるか |
+| AI Overview引用判定 | `ai_overview.references[].link` | `items[type=ai_overview].items[].references[].url`（SerpApiよりネストが1階層深い点に注意） |
+
+DataForSEO側のステータスは `status_code`（全体）と `tasks[0].status_code`（タスク単位）の2箇所で返る。いずれも `20000` 以外は `SerpError` として扱い、失敗として続行する（部分成功方針、CLAUDE.md参照）。
+
+料金：無料クレジット$1（登録時自動付与、Live queryで約500回分）、以降はLive $0.002/リクエスト・Standard $0.0006/リクエスト（2026-08-21調査時点。変動するため契約前に要確認）。
 
 ---
 
